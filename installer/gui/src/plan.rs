@@ -12,6 +12,7 @@ pub enum PartitionAction {
     ShrinkAndCreate,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RollbackCheckpoint {
     BeforePartitionChange,
