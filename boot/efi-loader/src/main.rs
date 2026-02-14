@@ -194,7 +194,8 @@ fn allocate_boot_modules_storage() -> Result<*mut BootModule, Status> {
 }
 
 fn load_blob(path: &CStr16, preferred_addr: Option<u64>) -> Result<(NonNull<u8>, usize), Status> {
-    let mut fs = boot::get_image_file_system(boot::image_handle()).map_err(|_| Status::NOT_FOUND)?;
+    let mut fs =
+        boot::get_image_file_system(boot::image_handle()).map_err(|_| Status::NOT_FOUND)?;
     let mut root = fs.open_volume().map_err(|_| Status::NOT_FOUND)?;
 
     let file = root
@@ -209,7 +210,9 @@ fn load_blob(path: &CStr16, preferred_addr: Option<u64>) -> Result<(NonNull<u8>,
     let mut buffer = Vec::new();
     loop {
         let mut chunk = [0u8; 4096];
-        let read = regular_file.read(&mut chunk).map_err(|_| Status::LOAD_ERROR)?;
+        let read = regular_file
+            .read(&mut chunk)
+            .map_err(|_| Status::LOAD_ERROR)?;
         if read == 0 {
             break;
         }
@@ -219,7 +222,9 @@ fn load_blob(path: &CStr16, preferred_addr: Option<u64>) -> Result<(NonNull<u8>,
     let pages = pages_for(buffer.len());
     let blob_ptr = if let Some(addr) = preferred_addr {
         boot::allocate_pages(AllocateType::Address(addr), MemoryType::LOADER_DATA, pages)
-            .or_else(|_| boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, pages))
+            .or_else(|_| {
+                boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, pages)
+            })
             .map_err(|_| Status::OUT_OF_RESOURCES)?
     } else {
         boot::allocate_pages(AllocateType::AnyPages, MemoryType::LOADER_DATA, pages)
@@ -261,5 +266,9 @@ fn convert_memory_map(
 
 const fn pages_for(bytes: usize) -> usize {
     let pages = (bytes + 4095) / 4096;
-    if pages == 0 { 1 } else { pages }
+    if pages == 0 {
+        1
+    } else {
+        pages
+    }
 }

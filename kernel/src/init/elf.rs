@@ -112,7 +112,11 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
     let phent = header.e_phentsize as usize;
 
     let ph_table_end = phoff
-        .checked_add(phnum.checked_mul(phent).ok_or(LoadError::InvalidProgramHeader)?)
+        .checked_add(
+            phnum
+                .checked_mul(phent)
+                .ok_or(LoadError::InvalidProgramHeader)?,
+        )
         .ok_or(LoadError::InvalidProgramHeader)?;
     if ph_table_end > image.len() {
         return Err(LoadError::InvalidProgramHeader);
@@ -124,7 +128,8 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
 
     for i in 0..phnum {
         let off = phoff + i * phent;
-        let ph = read_struct::<Elf64ProgramHeader>(image, off).ok_or(LoadError::InvalidProgramHeader)?;
+        let ph =
+            read_struct::<Elf64ProgramHeader>(image, off).ok_or(LoadError::InvalidProgramHeader)?;
         if ph.p_type != PT_LOAD {
             continue;
         }
@@ -176,7 +181,8 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
 
     for i in 0..phnum {
         let off = phoff + i * phent;
-        let ph = read_struct::<Elf64ProgramHeader>(image, off).ok_or(LoadError::InvalidProgramHeader)?;
+        let ph =
+            read_struct::<Elf64ProgramHeader>(image, off).ok_or(LoadError::InvalidProgramHeader)?;
         if ph.p_type != PT_LOAD || ph.p_memsz == 0 {
             continue;
         }
@@ -205,7 +211,11 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
             let dst = core::ptr::addr_of_mut!(USERSPACE_IMAGE_STAGING)
                 .cast::<u8>()
                 .add(dst_start);
-            core::ptr::copy_nonoverlapping(image.as_ptr().add(src_start), dst, ph.p_filesz as usize);
+            core::ptr::copy_nonoverlapping(
+                image.as_ptr().add(src_start),
+                dst,
+                ph.p_filesz as usize,
+            );
         }
 
         segments[seg_idx] = LoadedSegment {

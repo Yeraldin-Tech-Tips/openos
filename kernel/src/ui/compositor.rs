@@ -424,7 +424,9 @@ fn scene_for_action(action: GestureAction) -> SimpleScene {
         GestureAction::AppSwitcherRight => APP_SWITCHER_RIGHT_SCENE,
         GestureAction::ControlCenter => CONTROL_CENTER_SCENE,
         GestureAction::NotificationCenter => NOTIFICATION_SCENE,
-        GestureAction::LaunchShell | GestureAction::LaunchSettings | GestureAction::LaunchFiles => HOME_SCENE,
+        GestureAction::LaunchShell | GestureAction::LaunchSettings | GestureAction::LaunchFiles => {
+            HOME_SCENE
+        }
     }
 }
 
@@ -489,12 +491,10 @@ fn compute_layout(width: u32, height: u32, dock_height: u32) -> HomeLayout {
         }
     }
 
-    let bottom_limit = height.saturating_sub(max(dock_height, 104)).saturating_sub(26);
-    let third_row_y = top_y
-        + widget_size
-        + widget_gap
-        + weather_h
-        + clamp_u32(height / 23, 20, 38);
+    let bottom_limit = height
+        .saturating_sub(max(dock_height, 104))
+        .saturating_sub(26);
+    let third_row_y = top_y + widget_size + widget_gap + weather_h + clamp_u32(height / 23, 20, 38);
     let final_top_y = if third_row_y + icon_size + 18 > bottom_limit {
         top_y.saturating_sub((third_row_y + icon_size + 18) - bottom_limit)
     } else {
@@ -530,7 +530,13 @@ fn draw_wallpaper(
     let blue_cy = height.saturating_mul(48) / 100;
     let blue_r = max_dim.saturating_mul(53) / 100;
     framebuffer::fill_circle_alpha(blue_cx, blue_cy, blue_r, 0x1B5BE3, 216)?;
-    framebuffer::fill_circle_alpha(blue_cx, blue_cy, blue_r.saturating_sub(max_dim / 11), 0x2D83F5, 84)?;
+    framebuffer::fill_circle_alpha(
+        blue_cx,
+        blue_cy,
+        blue_r.saturating_sub(max_dim / 11),
+        0x2D83F5,
+        84,
+    )?;
 
     // Dark right-side curtain seen in the reference.
     let dark_cx = shift_u32(width.saturating_mul(108) / 100, shift / 2);
@@ -546,8 +552,20 @@ fn draw_wallpaper(
 
     // Blend seam where blue and green overlap.
     let seam_cx = shift_u32(width.saturating_mul(60) / 100, shift / 2);
-    framebuffer::fill_circle_alpha(seam_cx, height.saturating_mul(87) / 100, max_dim / 3, 0x1B4EAE, 82)?;
-    framebuffer::fill_circle_alpha(seam_cx, height.saturating_mul(92) / 100, max_dim / 4, scene.dock_color, 44)?;
+    framebuffer::fill_circle_alpha(
+        seam_cx,
+        height.saturating_mul(87) / 100,
+        max_dim / 3,
+        0x1B4EAE,
+        82,
+    )?;
+    framebuffer::fill_circle_alpha(
+        seam_cx,
+        height.saturating_mul(92) / 100,
+        max_dim / 4,
+        scene.dock_color,
+        44,
+    )?;
     Ok(())
 }
 
@@ -583,7 +601,10 @@ fn draw_widgets(
     let clock_y = shift_u32(layout.top_y, dy);
     draw_clock_widget(clock_x, clock_y, layout.widget_size, clock_digital)?;
 
-    let match_x = shift_u32(layout.left_margin + layout.widget_size + layout.widget_gap, dx);
+    let match_x = shift_u32(
+        layout.left_margin + layout.widget_size + layout.widget_gap,
+        dx,
+    );
     let match_y = shift_u32(layout.top_y, dy);
     draw_match_widget(match_x, match_y, layout.widget_size, match_expanded)?;
 
@@ -794,7 +815,13 @@ fn draw_app_grid(layout: HomeLayout, motion: MotionState) -> Result<(), Framebuf
             layout.icons_x0 + i as u32 * (layout.icon_size + layout.col_gap),
             dx,
         );
-        draw_app_icon(x, shift_u32(top_y, dy), layout.icon_size, top_icons[i], true)?;
+        draw_app_icon(
+            x,
+            shift_u32(top_y, dy),
+            layout.icon_size,
+            top_icons[i],
+            true,
+        )?;
         i += 1;
     }
 
@@ -804,7 +831,13 @@ fn draw_app_grid(layout: HomeLayout, motion: MotionState) -> Result<(), Framebuf
             layout.icons_x0 + j as u32 * (layout.icon_size + layout.col_gap),
             dx,
         );
-        draw_app_icon(x, shift_u32(second_y, dy), layout.icon_size, second_icons[j], true)?;
+        draw_app_icon(
+            x,
+            shift_u32(second_y, dy),
+            layout.icon_size,
+            second_icons[j],
+            true,
+        )?;
         j += 1;
     }
 
@@ -836,14 +869,7 @@ fn draw_app_icon(
 ) -> Result<(), FramebufferError> {
     let radius = clamp_u32(size / 4, 10, 18);
     framebuffer::fill_rounded_rect_alpha(x + 2, y + 6, size, size, radius, 0x081A3B, 110)?;
-    framebuffer::fill_rounded_rect(
-        x,
-        y,
-        size,
-        size,
-        radius,
-        spec.bg,
-    )?;
+    framebuffer::fill_rounded_rect(x, y, size, size, radius, spec.bg)?;
     framebuffer::fill_rounded_rect_alpha(
         x + 1,
         y + 1,
@@ -888,7 +914,15 @@ fn draw_dock(
     let base_dock_y = height.saturating_sub(max(scene.dock_height, 98));
     let dock_y = shift_u32(base_dock_y, -motion.dock_lift);
 
-    framebuffer::fill_rounded_rect_alpha(dock_x + 2, dock_y + 6, dock_w, dock_h, 24, 0x05070D, 178)?;
+    framebuffer::fill_rounded_rect_alpha(
+        dock_x + 2,
+        dock_y + 6,
+        dock_w,
+        dock_h,
+        24,
+        0x05070D,
+        178,
+    )?;
     framebuffer::fill_rounded_rect_alpha(dock_x, dock_y, dock_w, dock_h, 24, 0x0D1621, 204)?;
     framebuffer::fill_rounded_rect_alpha(
         dock_x + 2,
@@ -978,7 +1012,14 @@ fn draw_dock(
         draw_app_icon(x, y, icon_size, specs[i], false)?;
         x += icon_size + gap;
         if i == separator_after {
-            framebuffer::fill_rect_alpha(x + 2, y + 6, 2, icon_size.saturating_sub(12), 0xA7B8CA, 130)?;
+            framebuffer::fill_rect_alpha(
+                x + 2,
+                y + 6,
+                2,
+                icon_size.saturating_sub(12),
+                0xA7B8CA,
+                130,
+            )?;
             x += separator_w;
         }
         i += 1;
@@ -994,7 +1035,12 @@ fn draw_page_dots(width: u32, height: u32, motion: MotionState) -> Result<(), Fr
     Ok(())
 }
 
-fn build_home_targets(width: u32, height: u32, scene: SimpleScene, motion: MotionState) -> HomeTargets {
+fn build_home_targets(
+    width: u32,
+    height: u32,
+    scene: SimpleScene,
+    motion: MotionState,
+) -> HomeTargets {
     let layout = compute_layout(width, height, scene.dock_height);
     let mut targets = HomeTargets::empty();
 
@@ -1009,7 +1055,10 @@ fn build_home_targets(width: u32, height: u32, scene: SimpleScene, motion: Motio
         TargetAction::ToggleClock,
     );
 
-    let match_x = shift_u32(layout.left_margin + layout.widget_size + layout.widget_gap, dx);
+    let match_x = shift_u32(
+        layout.left_margin + layout.widget_size + layout.widget_gap,
+        dx,
+    );
     let match_y = shift_u32(layout.top_y, dy);
     push_target(
         &mut targets,
@@ -1029,7 +1078,11 @@ fn build_home_targets(width: u32, height: u32, scene: SimpleScene, motion: Motio
     let top_y = shift_u32(layout.top_y + 12, dy);
     let second_y = shift_u32(layout.top_y + 12 + layout.icon_size + layout.row_gap, dy);
     let third_y = shift_u32(
-        layout.top_y + layout.widget_size + layout.widget_gap + layout.weather_h + clamp_u32(layout.widget_size / 3, 24, 44),
+        layout.top_y
+            + layout.widget_size
+            + layout.widget_gap
+            + layout.weather_h
+            + clamp_u32(layout.widget_size / 3, 24, 44),
         dy,
     );
 
@@ -1102,7 +1155,10 @@ fn build_home_targets(width: u32, height: u32, scene: SimpleScene, motion: Motio
     let dock_w = icons_w + pad * 2;
     let dock_h = icon_size + 18;
     let dock_x = width.saturating_sub(dock_w) / 2;
-    let dock_y = shift_u32(height.saturating_sub(max(scene.dock_height, 98)), -motion.dock_lift);
+    let dock_y = shift_u32(
+        height.saturating_sub(max(scene.dock_height, 98)),
+        -motion.dock_lift,
+    );
     let y = dock_y + (dock_h.saturating_sub(icon_size)) / 2;
 
     let dock_actions = [
@@ -1228,7 +1284,11 @@ fn draw_pointer_cursor(width: u32, height: u32) -> Result<(), FramebufferError> 
             UI_STATE.pointer_y = height / 2;
             UI_STATE.pointer_initialized = true;
         }
-        (UI_STATE.pointer_x, UI_STATE.pointer_y, UI_STATE.pointer_visible)
+        (
+            UI_STATE.pointer_x,
+            UI_STATE.pointer_y,
+            UI_STATE.pointer_visible,
+        )
     };
 
     if !visible {
@@ -1249,7 +1309,12 @@ fn draw_pointer_cursor(width: u32, height: u32) -> Result<(), FramebufferError> 
 fn draw_badge(x: u32, y: u32, count: u8) -> Result<(), FramebufferError> {
     let (text, text_x) = badge_text(count);
     framebuffer::fill_circle_alpha(x, y, 9, 0xF44A57, 230)?;
-    framebuffer::draw_text(x.saturating_sub(text_x), y.saturating_sub(4), text, 0xFFFFFF)?;
+    framebuffer::draw_text(
+        x.saturating_sub(text_x),
+        y.saturating_sub(4),
+        text,
+        0xFFFFFF,
+    )?;
     Ok(())
 }
 
@@ -1287,34 +1352,116 @@ fn draw_icon_symbol(kind: IconKind, x: u32, y: u32, size: u32) -> Result<(), Fra
 
     match kind {
         IconKind::Messages => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(10), cy.saturating_sub(8), 20, 14, 5, 0xFFFFFF, 204)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(10),
+                cy.saturating_sub(8),
+                20,
+                14,
+                5,
+                0xFFFFFF,
+                204,
+            )?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(3), cy + 7, 6, 3, 0xFFFFFF, 204)?;
         }
         IconKind::FaceTime => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(12), cy.saturating_sub(8), 16, 14, 4, 0xFFFFFF, 204)?;
-            framebuffer::fill_rounded_rect_alpha(cx + 4, cy.saturating_sub(5), 8, 8, 3, 0xFFFFFF, 204)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(12),
+                cy.saturating_sub(8),
+                16,
+                14,
+                4,
+                0xFFFFFF,
+                204,
+            )?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx + 4,
+                cy.saturating_sub(5),
+                8,
+                8,
+                3,
+                0xFFFFFF,
+                204,
+            )?;
         }
         IconKind::Files => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(9), 22, 18, 4, 0x2E92F0, 200)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(9), 9, 4, 0x8AD0FF, 204)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(9),
+                22,
+                18,
+                4,
+                0x2E92F0,
+                200,
+            )?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(9),
+                9,
+                4,
+                0x8AD0FF,
+                204,
+            )?;
         }
         IconKind::Reminders => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(10), 22, 20, 4, 0xFFFFFF, 222)?;
-            framebuffer::fill_circle_alpha(cx.saturating_sub(7), cy.saturating_sub(4), 2, 0x57A3F5, 222)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(10),
+                22,
+                20,
+                4,
+                0xFFFFFF,
+                222,
+            )?;
+            framebuffer::fill_circle_alpha(
+                cx.saturating_sub(7),
+                cy.saturating_sub(4),
+                2,
+                0x57A3F5,
+                222,
+            )?;
             framebuffer::fill_circle_alpha(cx.saturating_sub(7), cy + 2, 2, 0xF58E68, 222)?;
             framebuffer::fill_circle_alpha(cx.saturating_sub(7), cy + 8, 2, 0xF2C64F, 222)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(2), cy.saturating_sub(5), 10, 2, 0xC4D2E3, 210)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(2),
+                cy.saturating_sub(5),
+                10,
+                2,
+                0xC4D2E3,
+                210,
+            )?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(2), cy + 1, 10, 2, 0xC4D2E3, 210)?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(2), cy + 7, 10, 2, 0xC4D2E3, 210)?;
         }
         IconKind::AppStore => {
-            framebuffer::fill_rect_alpha(cx.saturating_sub(1), cy.saturating_sub(9), 2, 18, 0xFFFFFF, 214)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(1),
+                cy.saturating_sub(9),
+                2,
+                18,
+                0xFFFFFF,
+                214,
+            )?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(8), cy + 4, 16, 2, 0xFFFFFF, 214)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(7), cy.saturating_sub(5), 2, 10, 0xFFFFFF, 214)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(7),
+                cy.saturating_sub(5),
+                2,
+                10,
+                0xFFFFFF,
+                214,
+            )?;
             framebuffer::fill_rect_alpha(cx + 5, cy.saturating_sub(5), 2, 10, 0xFFFFFF, 214)?;
         }
         IconKind::Navigation => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(12), cy.saturating_sub(10), 24, 20, 4, 0x0A2D68, 220)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(12),
+                cy.saturating_sub(10),
+                24,
+                20,
+                4,
+                0x0A2D68,
+                220,
+            )?;
             let mut px = cx.saturating_sub(8);
             let mut py = cy.saturating_sub(6);
             let mut i = 0usize;
@@ -1329,8 +1476,24 @@ fn draw_icon_symbol(kind: IconKind, x: u32, y: u32, size: u32) -> Result<(), Fra
             }
         }
         IconKind::Books => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(10), 9, 20, 3, 0xFFF2D5, 220)?;
-            framebuffer::fill_rounded_rect_alpha(cx + 2, cy.saturating_sub(10), 9, 20, 3, 0xFFF2D5, 220)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(10),
+                9,
+                20,
+                3,
+                0xFFF2D5,
+                220,
+            )?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx + 2,
+                cy.saturating_sub(10),
+                9,
+                20,
+                3,
+                0xFFF2D5,
+                220,
+            )?;
             framebuffer::fill_rect_alpha(cx, cy.saturating_sub(10), 2, 20, 0xDB8C31, 210)?;
         }
         IconKind::Podcasts => {
@@ -1345,53 +1508,154 @@ fn draw_icon_symbol(kind: IconKind, x: u32, y: u32, size: u32) -> Result<(), Fra
             framebuffer::fill_circle_alpha(cx + 7, cy + 4, 4, 0xFFD45F, 220)?;
             framebuffer::fill_circle_alpha(cx, cy + 8, 4, 0x69D06B, 220)?;
             framebuffer::fill_circle_alpha(cx.saturating_sub(7), cy + 4, 4, 0x5AC7F5, 220)?;
-            framebuffer::fill_circle_alpha(cx.saturating_sub(7), cy.saturating_sub(4), 4, 0x7486F2, 220)?;
+            framebuffer::fill_circle_alpha(
+                cx.saturating_sub(7),
+                cy.saturating_sub(4),
+                4,
+                0x7486F2,
+                220,
+            )?;
             framebuffer::fill_circle_alpha(cx, cy, 3, 0xFFFFFF, 220)?;
         }
         IconKind::Settings => {
             framebuffer::fill_circle_alpha(cx, cy, 10, 0x6D727C, 222)?;
             framebuffer::fill_circle_alpha(cx, cy, 5, 0xBEC5CF, 222)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(1), cy.saturating_sub(14), 2, 4, 0x9CA5B2, 210)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(1),
+                cy.saturating_sub(14),
+                2,
+                4,
+                0x9CA5B2,
+                210,
+            )?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(1), cy + 10, 2, 4, 0x9CA5B2, 210)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(14), cy.saturating_sub(1), 4, 2, 0x9CA5B2, 210)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(14),
+                cy.saturating_sub(1),
+                4,
+                2,
+                0x9CA5B2,
+                210,
+            )?;
             framebuffer::fill_rect_alpha(cx + 10, cy.saturating_sub(1), 4, 2, 0x9CA5B2, 210)?;
         }
         IconKind::Safari => {
             framebuffer::fill_circle_alpha(cx, cy, size / 4 + 2, 0xFFFFFF, 206)?;
             framebuffer::fill_circle_alpha(cx, cy, size / 4, 0xA8D2FF, 226)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(1), cy.saturating_sub(8), 2, 16, 0x2A5D97, 226)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(8), cy.saturating_sub(1), 16, 2, 0x2A5D97, 226)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(1),
+                cy.saturating_sub(8),
+                2,
+                16,
+                0x2A5D97,
+                226,
+            )?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(8),
+                cy.saturating_sub(1),
+                16,
+                2,
+                0x2A5D97,
+                226,
+            )?;
             framebuffer::fill_rect_alpha(cx, cy.saturating_sub(7), 2, 8, 0xF05B63, 220)?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(1), cy, 8, 2, 0xF05B63, 220)?;
         }
         IconKind::Music => {
             framebuffer::fill_rect_alpha(cx + 2, cy.saturating_sub(8), 3, 13, 0xFFFFFF, 206)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(5), cy.saturating_sub(8), 10, 3, 0xFFFFFF, 206)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(5),
+                cy.saturating_sub(8),
+                10,
+                3,
+                0xFFFFFF,
+                206,
+            )?;
             framebuffer::fill_circle_alpha(cx.saturating_sub(3), cy + 5, 4, 0xFFFFFF, 206)?;
             framebuffer::fill_circle_alpha(cx + 4, cy + 3, 4, 0xFFFFFF, 206)?;
         }
         IconKind::Mail => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(8), 22, 16, 4, 0xFFFFFF, 206)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(9), cy.saturating_sub(1), 18, 2, 0x5A84B6, 218)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(9), cy.saturating_sub(7), 2, 7, 0x5A84B6, 206)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(8),
+                22,
+                16,
+                4,
+                0xFFFFFF,
+                206,
+            )?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(9),
+                cy.saturating_sub(1),
+                18,
+                2,
+                0x5A84B6,
+                218,
+            )?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(9),
+                cy.saturating_sub(7),
+                2,
+                7,
+                0x5A84B6,
+                206,
+            )?;
             framebuffer::fill_rect_alpha(cx + 7, cy.saturating_sub(7), 2, 7, 0x5A84B6, 206)?;
         }
         IconKind::Camera => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(12), cy.saturating_sub(8), 24, 16, 4, 0xDDE9F8, 218)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(12),
+                cy.saturating_sub(8),
+                24,
+                16,
+                4,
+                0xDDE9F8,
+                218,
+            )?;
             framebuffer::fill_circle_alpha(cx, cy, 5, 0x5F85B7, 226)?;
             framebuffer::fill_circle_alpha(cx, cy, 2, 0xDCE8F8, 228)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(6), cy.saturating_sub(10), 8, 3, 0xDDE9F8, 218)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(6),
+                cy.saturating_sub(10),
+                8,
+                3,
+                0xDDE9F8,
+                218,
+            )?;
         }
         IconKind::Notes => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(10), 22, 20, 4, 0xFFFFFF, 212)?;
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(10), 22, 6, 4, 0xF4D45E, 226)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(10),
+                22,
+                20,
+                4,
+                0xFFFFFF,
+                212,
+            )?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(10),
+                22,
+                6,
+                4,
+                0xF4D45E,
+                226,
+            )?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(7), cy, 14, 2, 0xC7D5E6, 208)?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(7), cy + 4, 10, 2, 0xC7D5E6, 208)?;
         }
         IconKind::Brush => {
             framebuffer::fill_rect_alpha(cx.saturating_sub(9), cy + 4, 18, 2, 0x9A6AF2, 212)?;
             framebuffer::fill_rect_alpha(cx.saturating_sub(6), cy + 1, 12, 2, 0xAC77F7, 212)?;
-            framebuffer::fill_rect_alpha(cx.saturating_sub(3), cy.saturating_sub(2), 8, 2, 0xC689FF, 212)?;
+            framebuffer::fill_rect_alpha(
+                cx.saturating_sub(3),
+                cy.saturating_sub(2),
+                8,
+                2,
+                0xC689FF,
+                212,
+            )?;
         }
         IconKind::Reddit => {
             framebuffer::fill_circle_alpha(cx, cy, 10, 0xFFFFFF, 220)?;
@@ -1402,10 +1666,42 @@ fn draw_icon_symbol(kind: IconKind, x: u32, y: u32, size: u32) -> Result<(), Fra
             framebuffer::fill_circle_alpha(cx + 11, cy.saturating_sub(7), 2, 0xFFFFFF, 220)?;
         }
         IconKind::FolderGrid => {
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(11), cy.saturating_sub(9), 22, 18, 5, 0xE9F0FB, 212)?;
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(8), cy.saturating_sub(5), 7, 6, 2, 0x8EC8F8, 210)?;
-            framebuffer::fill_rounded_rect_alpha(cx + 1, cy.saturating_sub(5), 7, 6, 2, 0xA4D9A7, 210)?;
-            framebuffer::fill_rounded_rect_alpha(cx.saturating_sub(8), cy + 3, 7, 5, 2, 0xF3C67B, 210)?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(11),
+                cy.saturating_sub(9),
+                22,
+                18,
+                5,
+                0xE9F0FB,
+                212,
+            )?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(8),
+                cy.saturating_sub(5),
+                7,
+                6,
+                2,
+                0x8EC8F8,
+                210,
+            )?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx + 1,
+                cy.saturating_sub(5),
+                7,
+                6,
+                2,
+                0xA4D9A7,
+                210,
+            )?;
+            framebuffer::fill_rounded_rect_alpha(
+                cx.saturating_sub(8),
+                cy + 3,
+                7,
+                5,
+                2,
+                0xF3C67B,
+                210,
+            )?;
             framebuffer::fill_rounded_rect_alpha(cx + 1, cy + 3, 7, 5, 2, 0xBCA9F2, 210)?;
         }
     }

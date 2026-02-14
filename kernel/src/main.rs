@@ -5,9 +5,9 @@ mod arch;
 mod boot;
 mod drivers;
 mod fs;
-mod ipc;
-mod input;
 mod init;
+mod input;
+mod ipc;
 mod lifecycle;
 mod mm;
 mod net;
@@ -61,7 +61,10 @@ pub extern "sysv64" fn openos_kernel_main(boot_info_ptr: *const BootInfo) -> ! {
             task.address_space.0 as u64,
         );
         arch::x86_64::serial::write_hex_u64("[openos-kernel] pid1.image_base=", task.image_base);
-        arch::x86_64::serial::write_hex_u64("[openos-kernel] pid1.image_size=", task.image_size as u64);
+        arch::x86_64::serial::write_hex_u64(
+            "[openos-kernel] pid1.image_size=",
+            task.image_size as u64,
+        );
         arch::x86_64::serial::write_hex_u64(
             "[openos-kernel] pid1.segment_count=",
             task.segment_count as u64,
@@ -82,12 +85,12 @@ pub extern "sysv64" fn openos_kernel_main(boot_info_ptr: *const BootInfo) -> ! {
     arch::x86_64::serial::write_line("[openos-kernel] dispatch pid1 (ring3)");
     if let Err(err) = sched::dispatch_task(pid1) {
         match err {
-            sched::DispatchTaskError::MissingTask => {
-                arch::x86_64::serial::write_line("[openos-kernel] pid1 dispatch failed: missing task")
-            }
-            sched::DispatchTaskError::InvalidContext => {
-                arch::x86_64::serial::write_line("[openos-kernel] pid1 dispatch failed: invalid context")
-            }
+            sched::DispatchTaskError::MissingTask => arch::x86_64::serial::write_line(
+                "[openos-kernel] pid1 dispatch failed: missing task",
+            ),
+            sched::DispatchTaskError::InvalidContext => arch::x86_64::serial::write_line(
+                "[openos-kernel] pid1 dispatch failed: invalid context",
+            ),
         }
     }
 

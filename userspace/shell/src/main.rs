@@ -1,4 +1,4 @@
-use abi::input::{GestureAction, KeyboardBinding, MOD_ALT, MOD_CTRL, MOD_SHIFT, DEFAULT_BINDINGS};
+use abi::input::{GestureAction, KeyboardBinding, DEFAULT_BINDINGS, MOD_ALT, MOD_CTRL, MOD_SHIFT};
 use std::fs;
 
 #[derive(Clone, Debug)]

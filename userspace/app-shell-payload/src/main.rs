@@ -5,8 +5,9 @@ use core::arch::asm;
 
 use abi::ipc::{UiChannel, UiMessageHeader, UiMessageKind};
 use openos_syscall::{
-    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read, input_subscribe,
-    ipc_send, net_connect, net_recv, net_send, net_socket, proc_exit, vm_map, vm_unmap,
+    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read,
+    input_subscribe, ipc_send, net_connect, net_recv, net_send, net_socket, proc_exit, vm_map,
+    vm_unmap,
 };
 
 const GESTURE_HOME: u64 = 0;
@@ -24,7 +25,10 @@ pub extern "sysv64" fn _start(_task_id: u64) -> ! {
     let _ = input_subscribe(true);
 
     log_file_prefix(b"/proc/apps", b"[openos-app-shell] apps: ");
-    log_file_prefix(b"/proc/launcher-history", b"[openos-app-shell] launch-hist: ");
+    log_file_prefix(
+        b"/proc/launcher-history",
+        b"[openos-app-shell] launch-hist: ",
+    );
 
     let mut mapped_addr = 0u64;
     let vm_result = vm_map(0, 4096, 1);

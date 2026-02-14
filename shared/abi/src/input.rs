@@ -24,11 +24,31 @@ pub const MOD_SHIFT: u32 = 0b0010;
 pub const MOD_CTRL: u32 = 0b0100;
 
 pub const DEFAULT_BINDINGS: &[KeyboardBinding] = &[
-    KeyboardBinding { modifier_mask: MOD_ALT, keycode: 0x52, action: GestureAction::Home },
-    KeyboardBinding { modifier_mask: MOD_ALT, keycode: 0x50, action: GestureAction::AppSwitcherLeft },
-    KeyboardBinding { modifier_mask: MOD_ALT, keycode: 0x4F, action: GestureAction::AppSwitcherRight },
-    KeyboardBinding { modifier_mask: MOD_ALT, keycode: 0x51, action: GestureAction::ControlCenter },
-    KeyboardBinding { modifier_mask: MOD_ALT | MOD_SHIFT, keycode: 0x51, action: GestureAction::NotificationCenter },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x52,
+        action: GestureAction::Home,
+    },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x50,
+        action: GestureAction::AppSwitcherLeft,
+    },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x4F,
+        action: GestureAction::AppSwitcherRight,
+    },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x51,
+        action: GestureAction::ControlCenter,
+    },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT | MOD_SHIFT,
+        keycode: 0x51,
+        action: GestureAction::NotificationCenter,
+    },
 ];
 
 #[cfg(test)]
@@ -100,7 +120,8 @@ mod tests {
     fn default_bindings_keycodes_unique() {
         for i in 0..DEFAULT_BINDINGS.len() {
             for j in (i + 1)..DEFAULT_BINDINGS.len() {
-                let same_combo = DEFAULT_BINDINGS[i].modifier_mask == DEFAULT_BINDINGS[j].modifier_mask
+                let same_combo = DEFAULT_BINDINGS[i].modifier_mask
+                    == DEFAULT_BINDINGS[j].modifier_mask
                     && DEFAULT_BINDINGS[i].keycode == DEFAULT_BINDINGS[j].keycode;
                 assert!(!same_combo, "bindings {i} and {j} share the same key combo");
             }

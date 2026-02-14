@@ -152,7 +152,11 @@ mod tests {
 
     #[test]
     fn has_framebuffer_when_flag_set() {
-        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, BOOT_FLAG_FRAMEBUFFER_PRESENT);
+        let info = make_boot_info(
+            BOOTINFO_MAGIC,
+            BOOTINFO_VERSION,
+            BOOT_FLAG_FRAMEBUFFER_PRESENT,
+        );
         assert!(info.has_framebuffer());
     }
 
@@ -164,7 +168,11 @@ mod tests {
 
     #[test]
     fn has_init_module_when_flag_set() {
-        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, BOOT_FLAG_INIT_MODULE_PRESENT);
+        let info = make_boot_info(
+            BOOTINFO_MAGIC,
+            BOOTINFO_VERSION,
+            BOOT_FLAG_INIT_MODULE_PRESENT,
+        );
         assert!(info.has_init_module());
     }
 
@@ -192,8 +200,14 @@ mod tests {
 
     #[test]
     fn boot_module_kind_equality() {
-        assert_eq!(BootModuleKind::InitExecutable, BootModuleKind::InitExecutable);
-        assert_ne!(BootModuleKind::InitExecutable, BootModuleKind::AppShellExecutable);
+        assert_eq!(
+            BootModuleKind::InitExecutable,
+            BootModuleKind::InitExecutable
+        );
+        assert_ne!(
+            BootModuleKind::InitExecutable,
+            BootModuleKind::AppShellExecutable
+        );
     }
 
     #[test]

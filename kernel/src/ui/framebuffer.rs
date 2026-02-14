@@ -98,7 +98,13 @@ pub fn dimensions() -> Result<(u32, u32), FramebufferError> {
     Ok((fb.width, fb.height))
 }
 
-pub fn fill_rect(x: u32, y: u32, width: u32, height: u32, color: u32) -> Result<(), FramebufferError> {
+pub fn fill_rect(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    color: u32,
+) -> Result<(), FramebufferError> {
     if width == 0 || height == 0 {
         return Ok(());
     }
@@ -261,7 +267,10 @@ pub fn fill_rounded_rect(
             let mut px = 0u32;
             while px < rel_w {
                 if rounded_rect_contains(px, py, rel_w, rel_h, radius) {
-                    unsafe { ptr.add(row_base + start_x + px as usize).write_volatile(color) };
+                    unsafe {
+                        ptr.add(row_base + start_x + px as usize)
+                            .write_volatile(color)
+                    };
                 }
                 px += 1;
             }

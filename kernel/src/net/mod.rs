@@ -133,7 +133,8 @@ pub fn send(pid: TaskId, fd: u64, payload: &[u8]) -> Result<usize, NetError> {
                 Ok(count)
             }
             SocketMode::Nic => {
-                let sent = crate::drivers::ethernet_transmit(payload).map_err(|_| NetError::WouldBlock)?;
+                let sent =
+                    crate::drivers::ethernet_transmit(payload).map_err(|_| NetError::WouldBlock)?;
                 Ok(sent)
             }
             SocketMode::None => Err(NetError::NotConnected),

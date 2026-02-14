@@ -5,9 +5,9 @@ use core::arch::asm;
 
 use abi::ipc::{UiChannel, UiMessageHeader, UiMessageKind};
 use openos_syscall::{
-    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read, input_subscribe,
-    ipc_recv, ipc_send, net_connect, net_recv, net_send, net_socket, proc_exit, proc_spawn, proc_wait,
-    vm_map, vm_unmap,
+    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read,
+    input_subscribe, ipc_recv, ipc_send, net_connect, net_recv, net_send, net_socket, proc_exit,
+    proc_spawn, proc_wait, vm_map, vm_unmap,
 };
 
 const GESTURE_HOME: u64 = 0;
@@ -191,7 +191,8 @@ fn boot_smoke_checks() {
         unsafe {
             core::ptr::copy_nonoverlapping(vm_msg.as_ptr(), mapped_ptr, vm_msg.len());
         }
-        let vm_slice = unsafe { core::slice::from_raw_parts(mapped_ptr as *const u8, vm_msg.len()) };
+        let vm_slice =
+            unsafe { core::slice::from_raw_parts(mapped_ptr as *const u8, vm_msg.len()) };
         let _ = fs_write(1, vm_slice);
         let unmap_result = vm_unmap(vm_result.value, 4096);
         if unmap_result.code == 0 {

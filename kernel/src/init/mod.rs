@@ -2,8 +2,7 @@ mod elf;
 
 use abi::boot::{BootInfo, BootModule, BootModuleKind};
 use core::{
-    ptr,
-    slice,
+    ptr, slice,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -62,24 +61,32 @@ pub fn launch_pid1(boot: &BootInfo) -> TaskId {
     }
 }
 
-pub fn spawn_from_boot_module(spawn_arg: u64, parent_pid: TaskId) -> Result<TaskId, SpawnModuleError> {
+pub fn spawn_from_boot_module(
+    spawn_arg: u64,
+    parent_pid: TaskId,
+) -> Result<TaskId, SpawnModuleError> {
     let module_kind = spawn_arg_to_kind(spawn_arg).ok_or(SpawnModuleError::UnsupportedSpawnArg)?;
     let module = find_cached_module(module_kind).ok_or(SpawnModuleError::MissingModule)?;
 
     let pid = spawn_task_from_module(module, parent_pid, None).map_err(map_spawn_error)?;
-    serial::write_hex_u64("[openos-kernel] spawn.module.kind=", module.kind as u32 as u64);
+    serial::write_hex_u64(
+        "[openos-kernel] spawn.module.kind=",
+        module.kind as u32 as u64,
+    );
     serial::write_hex_u64("[openos-kernel] spawn.module.pid=", pid.0 as u64);
     Ok(pid)
 }
 
 fn try_launch_pid1_from_module() -> Result<TaskId, InitLaunchError> {
-    let init_module = find_cached_module(BootModuleKind::InitExecutable).ok_or(InitLaunchError::MissingModule)?;
+    let init_module =
+        find_cached_module(BootModuleKind::InitExecutable).ok_or(InitLaunchError::MissingModule)?;
 
     serial::write_line("[openos-kernel] init module discovered");
     serial::write_hex_u64("[openos-kernel] init.base=", init_module.base as u64);
     serial::write_hex_u64("[openos-kernel] init.size=", init_module.size as u64);
 
-    let pid = spawn_task_from_module(init_module, TaskId(0), Some(TaskId(1))).map_err(map_init_error)?;
+    let pid =
+        spawn_task_from_module(init_module, TaskId(0), Some(TaskId(1))).map_err(map_init_error)?;
     serial::write_line("[openos-kernel] launch pid1 from init module");
     Ok(pid)
 }
@@ -93,10 +100,22 @@ fn spawn_task_from_module(
 
     serial::write_line("[openos-kernel] module elf staged");
     serial::write_hex_u64("[openos-kernel] module.image_base=", loaded.image_base);
-    serial::write_hex_u64("[openos-kernel] module.image_size=", loaded.image_size as u64);
-    serial::write_hex_u64("[openos-kernel] module.entry_virtual=", loaded.entry_virtual);
-    serial::write_hex_u64("[openos-kernel] module.entry_staging=", loaded.entry_staging as u64);
-    serial::write_hex_u64("[openos-kernel] module.load_segments=", loaded.segment_count as u64);
+    serial::write_hex_u64(
+        "[openos-kernel] module.image_size=",
+        loaded.image_size as u64,
+    );
+    serial::write_hex_u64(
+        "[openos-kernel] module.entry_virtual=",
+        loaded.entry_virtual,
+    );
+    serial::write_hex_u64(
+        "[openos-kernel] module.entry_staging=",
+        loaded.entry_staging as u64,
+    );
+    serial::write_hex_u64(
+        "[openos-kernel] module.load_segments=",
+        loaded.segment_count as u64,
+    );
 
     let mut i = 0usize;
     while i < loaded.segment_count {
@@ -105,7 +124,10 @@ fn spawn_task_from_module(
         serial::write_hex_u64("[openos-kernel] seg.filesz=", seg.file_size);
         serial::write_hex_u64("[openos-kernel] seg.memsz=", seg.mem_size);
         serial::write_hex_u64("[openos-kernel] seg.flags=", seg.flags as u64);
-        serial::write_hex_u64("[openos-kernel] seg.staging_off=", seg.staging_offset as u64);
+        serial::write_hex_u64(
+            "[openos-kernel] seg.staging_off=",
+            seg.staging_offset as u64,
+        );
         i += 1;
     }
 
@@ -123,7 +145,10 @@ fn spawn_task_from_module(
     .map_err(|_| ModuleTaskError::SchedulerRejected)?;
 
     serial::write_hex_u64("[openos-kernel] task.registered.pid=", pid.0 as u64);
-    serial::write_hex_u64("[openos-kernel] task.user_stack_top=", user_context.stack_pointer);
+    serial::write_hex_u64(
+        "[openos-kernel] task.user_stack_top=",
+        user_context.stack_pointer,
+    );
     Ok(pid)
 }
 

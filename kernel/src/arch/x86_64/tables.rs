@@ -109,7 +109,8 @@ pub fn install_user_interrupt(vector: u8, handler_addr: u64) {
 }
 
 unsafe fn init_tss() {
-    let stack_top = core::ptr::addr_of!(INTERRUPT_STACK).cast::<u8>() as u64 + INTERRUPT_STACK_SIZE as u64;
+    let stack_top =
+        core::ptr::addr_of!(INTERRUPT_STACK).cast::<u8>() as u64 + INTERRUPT_STACK_SIZE as u64;
     TSS.rsp[0] = stack_top & !0xFu64;
     TSS.io_map_base = size_of::<Tss64>() as u16;
 }

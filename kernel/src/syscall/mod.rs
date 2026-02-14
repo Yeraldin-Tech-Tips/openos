@@ -5,10 +5,10 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use abi::syscalls::{Syscall, SyscallResult};
 use crate::fs;
 use crate::ipc::{self, UiMessageHeaderRaw};
 use crate::ui::compositor::{self, PresentError, SimpleScene};
+use abi::syscalls::{Syscall, SyscallResult};
 
 const USER_VADDR_MIN: u64 = 0x0000_0000_0040_0000;
 const USER_VADDR_MAX_EXCLUSIVE: u64 = 0x0000_8000_0000_0000;
@@ -95,7 +95,10 @@ fn proc_spawn(spawn_arg: u64) -> SyscallResult {
     if spawn_arg == 0 {
         return match crate::sched::spawn_from_current() {
             Ok(pid) => {
-                crate::arch::x86_64::serial::write_hex_u64("[openos-kernel] proc_spawn.pid=", pid.0 as u64);
+                crate::arch::x86_64::serial::write_hex_u64(
+                    "[openos-kernel] proc_spawn.pid=",
+                    pid.0 as u64,
+                );
                 SyscallResult::ok(pid.0 as u64)
             }
             Err(crate::sched::SpawnTaskError::MissingCurrentTask) => SyscallResult::err(-3),
@@ -113,14 +116,18 @@ fn proc_spawn(spawn_arg: u64) -> SyscallResult {
     match crate::init::spawn_from_boot_module(spawn_arg, parent_pid) {
         Ok(pid) => {
             crate::lifecycle::on_spawn(parent_pid, pid, spawn_arg);
-            crate::arch::x86_64::serial::write_hex_u64("[openos-kernel] proc_spawn.pid=", pid.0 as u64);
+            crate::arch::x86_64::serial::write_hex_u64(
+                "[openos-kernel] proc_spawn.pid=",
+                pid.0 as u64,
+            );
             SyscallResult::ok(pid.0 as u64)
         }
         Err(crate::init::SpawnModuleError::UnsupportedSpawnArg) => SyscallResult::err(-22),
         Err(crate::init::SpawnModuleError::MissingModule) => SyscallResult::err(-2),
-        Err(crate::init::SpawnModuleError::InvalidModule | crate::init::SpawnModuleError::UnsupportedFormat) => {
-            SyscallResult::err(-8)
-        }
+        Err(
+            crate::init::SpawnModuleError::InvalidModule
+            | crate::init::SpawnModuleError::UnsupportedFormat,
+        ) => SyscallResult::err(-8),
         Err(crate::init::SpawnModuleError::LoadFailed) => SyscallResult::err(-8),
         Err(crate::init::SpawnModuleError::SchedulerRejected) => SyscallResult::err(-11),
     }
@@ -129,7 +136,10 @@ fn proc_spawn(spawn_arg: u64) -> SyscallResult {
 fn proc_exit(status: u64) -> SyscallResult {
     match crate::sched::request_current_exit(status as i64) {
         Ok(pid) => {
-            crate::arch::x86_64::serial::write_hex_u64("[openos-kernel] proc_exit.pid=", pid.0 as u64);
+            crate::arch::x86_64::serial::write_hex_u64(
+                "[openos-kernel] proc_exit.pid=",
+                pid.0 as u64,
+            );
             SyscallResult::ok(0)
         }
         Err(crate::sched::ExitTaskError::MissingCurrentTask) => SyscallResult::err(-3),
@@ -195,9 +205,10 @@ fn vm_map(addr_hint: u64, len: u64, flags: u64) -> SyscallResult {
     let map_base = if addr_hint == 0 {
         match crate::sched::reserve_current_vm_range(len) {
             Ok(base) => base,
-            Err(crate::sched::VmRangeError::MissingCurrentTask | crate::sched::VmRangeError::InvalidCurrentTask) => {
-                return SyscallResult::err(-3)
-            }
+            Err(
+                crate::sched::VmRangeError::MissingCurrentTask
+                | crate::sched::VmRangeError::InvalidCurrentTask,
+            ) => return SyscallResult::err(-3),
             Err(crate::sched::VmRangeError::InvalidLength) => return SyscallResult::err(-22),
             Err(crate::sched::VmRangeError::RangeOverflow) => return SyscallResult::err(-12),
         }
@@ -209,17 +220,22 @@ fn vm_map(addr_hint: u64, len: u64, flags: u64) -> SyscallResult {
     let executable = (flags & VM_FLAG_EXECUTABLE) != 0;
     match crate::mm::map_user_range(asid, map_base, len, writable, executable) {
         Ok(addr) => SyscallResult::ok(addr),
-        Err(crate::mm::UserMapError::InvalidImage
-        | crate::mm::UserMapError::InvalidEntry
-        | crate::mm::UserMapError::InvalidRange
-        | crate::mm::UserMapError::AddressOutOfRange) => SyscallResult::err(-22),
+        Err(
+            crate::mm::UserMapError::InvalidImage
+            | crate::mm::UserMapError::InvalidEntry
+            | crate::mm::UserMapError::InvalidRange
+            | crate::mm::UserMapError::AddressOutOfRange,
+        ) => SyscallResult::err(-22),
         Err(crate::mm::UserMapError::AlreadyMapped) => SyscallResult::err(-17),
-        Err(crate::mm::UserMapError::InvalidAddressSpace | crate::mm::UserMapError::AddressSpaceTableFull) => {
-            SyscallResult::err(-3)
-        }
-        Err(crate::mm::UserMapError::ResourceTrackingOverflow
-        | crate::mm::UserMapError::PageTablePoolExhausted
-        | crate::mm::UserMapError::UserFramePoolExhausted) => SyscallResult::err(-12),
+        Err(
+            crate::mm::UserMapError::InvalidAddressSpace
+            | crate::mm::UserMapError::AddressSpaceTableFull,
+        ) => SyscallResult::err(-3),
+        Err(
+            crate::mm::UserMapError::ResourceTrackingOverflow
+            | crate::mm::UserMapError::PageTablePoolExhausted
+            | crate::mm::UserMapError::UserFramePoolExhausted,
+        ) => SyscallResult::err(-12),
     }
 }
 
@@ -236,17 +252,22 @@ fn vm_unmap(addr: u64, len: u64) -> SyscallResult {
 
     match crate::mm::unmap_user_range(asid, addr, len) {
         Ok(unmapped_pages) => SyscallResult::ok(unmapped_pages as u64),
-        Err(crate::mm::UserMapError::InvalidImage
-        | crate::mm::UserMapError::InvalidEntry
-        | crate::mm::UserMapError::InvalidRange
-        | crate::mm::UserMapError::AddressOutOfRange
-        | crate::mm::UserMapError::AlreadyMapped) => SyscallResult::err(-22),
-        Err(crate::mm::UserMapError::InvalidAddressSpace | crate::mm::UserMapError::AddressSpaceTableFull) => {
-            SyscallResult::err(-3)
-        }
-        Err(crate::mm::UserMapError::ResourceTrackingOverflow
-        | crate::mm::UserMapError::PageTablePoolExhausted
-        | crate::mm::UserMapError::UserFramePoolExhausted) => SyscallResult::err(-12),
+        Err(
+            crate::mm::UserMapError::InvalidImage
+            | crate::mm::UserMapError::InvalidEntry
+            | crate::mm::UserMapError::InvalidRange
+            | crate::mm::UserMapError::AddressOutOfRange
+            | crate::mm::UserMapError::AlreadyMapped,
+        ) => SyscallResult::err(-22),
+        Err(
+            crate::mm::UserMapError::InvalidAddressSpace
+            | crate::mm::UserMapError::AddressSpaceTableFull,
+        ) => SyscallResult::err(-3),
+        Err(
+            crate::mm::UserMapError::ResourceTrackingOverflow
+            | crate::mm::UserMapError::PageTablePoolExhausted
+            | crate::mm::UserMapError::UserFramePoolExhausted,
+        ) => SyscallResult::err(-12),
     }
 }
 
@@ -465,7 +486,9 @@ fn ipc_recv(header_out_ptr: u64, payload_out_ptr: u64, payload_capacity: u64) ->
         Ok(value) => value,
         Err(ipc::IpcError::QueueEmpty) => return SyscallResult::err(-11),
         Err(ipc::IpcError::PayloadTooLarge) => return SyscallResult::err(-90),
-        Err(ipc::IpcError::InvalidMessage | ipc::IpcError::QueueFull) => return SyscallResult::err(-22),
+        Err(ipc::IpcError::InvalidMessage | ipc::IpcError::QueueFull) => {
+            return SyscallResult::err(-22)
+        }
     };
 
     unsafe {
@@ -478,7 +501,12 @@ fn ipc_recv(header_out_ptr: u64, payload_out_ptr: u64, payload_capacity: u64) ->
     SyscallResult::ok(len as u64)
 }
 
-fn gfx_submit_scene(top_color: u64, bottom_color: u64, dock_color: u64, dock_height: u64) -> SyscallResult {
+fn gfx_submit_scene(
+    top_color: u64,
+    bottom_color: u64,
+    dock_color: u64,
+    dock_height: u64,
+) -> SyscallResult {
     let scene = SimpleScene {
         top_color: top_color as u32,
         bottom_color: bottom_color as u32,

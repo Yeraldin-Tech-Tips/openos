@@ -1,7 +1,4 @@
-use crate::{
-    arch::x86_64::serial,
-    sched::TaskId,
-};
+use crate::{arch::x86_64::serial, sched::TaskId};
 
 const MAX_APP_RECORDS: usize = 16;
 const MAX_LAUNCH_HISTORY: usize = 16;
@@ -262,7 +259,10 @@ unsafe fn set_foreground_locked(pid: TaskId) -> bool {
 
     let mut i = 0usize;
     while i < MAX_APP_RECORDS {
-        if APP_RECORDS[i].in_use && APP_RECORDS[i].state == AppState::Foreground && APP_RECORDS[i].pid != pid {
+        if APP_RECORDS[i].in_use
+            && APP_RECORDS[i].state == AppState::Foreground
+            && APP_RECORDS[i].pid != pid
+        {
             let mut record = APP_RECORDS[i];
             record.state = AppState::Queued;
             APP_RECORDS[i] = record;
@@ -390,7 +390,11 @@ unsafe fn next_seq_locked() -> u64 {
     if NEXT_RECORD_SEQ == 0 {
         NEXT_RECORD_SEQ = 1;
     }
-    if seq == 0 { 1 } else { seq }
+    if seq == 0 {
+        1
+    } else {
+        seq
+    }
 }
 
 fn kind_for_spawn_arg(spawn_arg: u64) -> AppKind {
