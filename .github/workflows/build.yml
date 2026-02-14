@@ -1,0 +1,21 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools-preview
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld xorriso mtools qemu-utils gdisk sbsigntool openssl
+      - name: Build
+        run: ./tools/image/build.sh

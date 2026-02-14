@@ -1,0 +1,14 @@
+[package]
+name = "openos-efi-loader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+abi = { path = "../../shared/abi" }
+uefi = { version = "0.36.1", features = ["alloc", "global_allocator", "panic_handler"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

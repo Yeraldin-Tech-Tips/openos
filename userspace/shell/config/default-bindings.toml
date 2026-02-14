@@ -1,0 +1,19 @@
+[[binding]]
+keys = ["Alt", "Up"]
+action = "Home"
+
+[[binding]]
+keys = ["Alt", "Left"]
+action = "AppSwitcherLeft"
+
+[[binding]]
+keys = ["Alt", "Right"]
+action = "AppSwitcherRight"
+
+[[binding]]
+keys = ["Alt", "Down"]
+action = "ControlCenter"
+
+[[binding]]
+keys = ["Alt", "Shift", "Down"]
+action = "NotificationCenter"

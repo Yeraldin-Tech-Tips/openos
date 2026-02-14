@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+  "boot/efi-loader",
+  "kernel",
+  "shared/abi",
+  "userspace/syscall",
+  "userspace/init",
+  "userspace/init-payload",
+  "userspace/app-shell-payload",
+  "userspace/app-settings-payload",
+  "userspace/app-files-payload",
+  "userspace/shell",
+  "userspace/apps/settings",
+  "userspace/apps/files",
+  "userspace/apps/terminal-lite",
+  "installer/gui",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+authors = ["OpenOS Contributors"]
+
+[workspace.dependencies]
+abi = { path = "shared/abi" }

@@ -1,0 +1,9 @@
+{
+  "app_id": "org.openos.settings",
+  "name": "Settings",
+  "version": "0.1.0",
+  "entry_point": "openos-settings",
+  "permissions": ["SettingsRead", "SettingsWrite", "NetworkClient"],
+  "min_os_version": "0.1.0",
+  "signature": "embedded"
+}

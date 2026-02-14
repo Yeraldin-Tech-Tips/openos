@@ -1,0 +1,8 @@
+[package]
+name = "openos-init-payload"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+abi = { path = "../../shared/abi" }
+openos-syscall = { path = "../syscall" }

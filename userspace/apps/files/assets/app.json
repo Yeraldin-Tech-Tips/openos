@@ -1,0 +1,9 @@
+{
+  "app_id": "org.openos.files",
+  "name": "Files",
+  "version": "0.1.0",
+  "entry_point": "openos-files",
+  "permissions": ["FilesRead", "FilesWrite"],
+  "min_os_version": "0.1.0",
+  "signature": "embedded"
+}
