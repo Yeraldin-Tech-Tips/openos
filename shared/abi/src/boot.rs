@@ -80,3 +80,141 @@ impl BootInfo {
         (self.flags & BOOT_FLAG_INIT_MODULE_PRESENT) != 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::ptr;
+
+    fn make_boot_info(magic: u64, version: u32, flags: u32) -> BootInfo {
+        BootInfo {
+            magic,
+            version,
+            flags,
+            memory_map: MemoryMap {
+                entries: ptr::null(),
+                count: 0,
+            },
+            framebuffer: FramebufferInfo {
+                base: ptr::null_mut(),
+                size: 0,
+                width: 0,
+                height: 0,
+                stride: 0,
+                bytes_per_pixel: 0,
+            },
+            modules: BootModules {
+                entries: ptr::null(),
+                count: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn bootinfo_magic_constant() {
+        // "OPENOS_BI" in little-endian u64
+        assert_eq!(BOOTINFO_MAGIC, 0x4F_50_45_4E_4F_53_42_49);
+    }
+
+    #[test]
+    fn bootinfo_version_is_v2() {
+        assert_eq!(BOOTINFO_VERSION, 2);
+    }
+
+    #[test]
+    fn boot_flags_are_distinct_bits() {
+        assert_eq!(BOOT_FLAG_FRAMEBUFFER_PRESENT, 1);
+        assert_eq!(BOOT_FLAG_INIT_MODULE_PRESENT, 2);
+        assert_eq!(
+            BOOT_FLAG_FRAMEBUFFER_PRESENT & BOOT_FLAG_INIT_MODULE_PRESENT,
+            0,
+            "flags must not overlap"
+        );
+    }
+
+    #[test]
+    fn is_valid_with_correct_magic_and_version() {
+        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, 0);
+        assert!(info.is_valid());
+    }
+
+    #[test]
+    fn is_valid_rejects_wrong_magic() {
+        let info = make_boot_info(0xDEADBEEF, BOOTINFO_VERSION, 0);
+        assert!(!info.is_valid());
+    }
+
+    #[test]
+    fn is_valid_rejects_wrong_version() {
+        let info = make_boot_info(BOOTINFO_MAGIC, 99, 0);
+        assert!(!info.is_valid());
+    }
+
+    #[test]
+    fn has_framebuffer_when_flag_set() {
+        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, BOOT_FLAG_FRAMEBUFFER_PRESENT);
+        assert!(info.has_framebuffer());
+    }
+
+    #[test]
+    fn no_framebuffer_when_flag_unset() {
+        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, 0);
+        assert!(!info.has_framebuffer());
+    }
+
+    #[test]
+    fn has_init_module_when_flag_set() {
+        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, BOOT_FLAG_INIT_MODULE_PRESENT);
+        assert!(info.has_init_module());
+    }
+
+    #[test]
+    fn no_init_module_when_flag_unset() {
+        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, 0);
+        assert!(!info.has_init_module());
+    }
+
+    #[test]
+    fn both_flags_set_simultaneously() {
+        let flags = BOOT_FLAG_FRAMEBUFFER_PRESENT | BOOT_FLAG_INIT_MODULE_PRESENT;
+        let info = make_boot_info(BOOTINFO_MAGIC, BOOTINFO_VERSION, flags);
+        assert!(info.has_framebuffer());
+        assert!(info.has_init_module());
+    }
+
+    #[test]
+    fn boot_module_kind_discriminants() {
+        assert_eq!(BootModuleKind::InitExecutable as u32, 1);
+        assert_eq!(BootModuleKind::AppShellExecutable as u32, 2);
+        assert_eq!(BootModuleKind::AppSettingsExecutable as u32, 3);
+        assert_eq!(BootModuleKind::AppFilesExecutable as u32, 4);
+    }
+
+    #[test]
+    fn boot_module_kind_equality() {
+        assert_eq!(BootModuleKind::InitExecutable, BootModuleKind::InitExecutable);
+        assert_ne!(BootModuleKind::InitExecutable, BootModuleKind::AppShellExecutable);
+    }
+
+    #[test]
+    fn memory_map_entry_layout() {
+        // Verify repr(C) struct has expected field sizes
+        assert_eq!(
+            core::mem::size_of::<MemoryMapEntry>(),
+            8 + 8 + 4 + 4, // base + len + kind + _reserved
+            "MemoryMapEntry must be 24 bytes for ABI stability"
+        );
+    }
+
+    #[test]
+    fn boot_module_layout() {
+        let module = BootModule {
+            kind: BootModuleKind::InitExecutable,
+            _reserved: 0,
+            base: ptr::null(),
+            size: 0,
+        };
+        assert_eq!(module.kind, BootModuleKind::InitExecutable);
+        assert_eq!(module.size, 0);
+    }
+}

@@ -1,21 +1,142 @@
-name: build
+name: CI
 
 on:
   push:
+    branches: ["*"]
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build:
+  # ── Lint: formatting + clippy ──────────────────────────────────────
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy, rust-src, llvm-tools-preview
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .build/target
+          key: lint-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: lint-${{ runner.os }}-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (host-target crates)
+        run: cargo clippy -p abi -p openos-installer-gui -- -D warnings
+
+  # ── Test: unit + integration tests ─────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src, llvm-tools-preview
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .build/target
+          key: test-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-${{ runner.os }}-
+
+      - name: Run tests
+        run: cargo test -p abi -p openos-installer-gui --verbose
+
+  # ── Build: full kernel + userspace build ───────────────────────────
+  build:
+    name: Build
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools-preview
+
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y clang lld xorriso mtools qemu-utils gdisk sbsigntool openssl
-      - name: Build
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .build/target
+          key: build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: build-${{ runner.os }}-
+
+      - name: Build all artifacts
         run: ./tools/image/build.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openos-binaries
+          path: out/bin/
+          retention-days: 14
+
+  # ── ISO: produce a bootable live ISO ───────────────────────────────
+  iso:
+    name: Build ISO
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools-preview
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld xorriso mtools qemu-utils gdisk sbsigntool openssl
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .build/target
+          key: build-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: build-${{ runner.os }}-
+
+      - name: Build all artifacts
+        run: ./tools/image/build.sh
+
+      - name: Build ISO image
+        run: ./tools/image/make_live_iso.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: openos-live-x86_64.iso
+          path: out/openos-live-x86_64.iso
+          retention-days: 14

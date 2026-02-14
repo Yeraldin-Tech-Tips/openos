@@ -62,3 +62,185 @@ impl InstallPlan {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_plan() -> InstallPlan {
+        InstallPlan {
+            target_disk: "/dev/nvme0n1".to_string(),
+            efi_partition: "/dev/nvme0n1p1".to_string(),
+            root_partition: "/dev/nvme0n1p5".to_string(),
+            filesystem: "ext4".to_string(),
+            boot_entry_policy: BootEntryPolicy::CreateAndKeepFallback,
+            partition_action: PartitionAction::UseExisting,
+            rollback_checkpoints: vec![
+                RollbackCheckpoint::BeforePartitionChange,
+                RollbackCheckpoint::BeforeFilesystemFormat,
+                RollbackCheckpoint::BeforeBootEntryWrite,
+            ],
+        }
+    }
+
+    // --- Validation: valid plans ---
+
+    #[test]
+    fn valid_plan_passes_validation() {
+        assert!(valid_plan().validate().is_ok());
+    }
+
+    #[test]
+    fn valid_plan_with_replace_policy() {
+        let mut plan = valid_plan();
+        plan.boot_entry_policy = BootEntryPolicy::ReplaceOpenOSEntry;
+        assert!(plan.validate().is_ok());
+    }
+
+    #[test]
+    fn valid_plan_with_shrink_and_create() {
+        let mut plan = valid_plan();
+        plan.partition_action = PartitionAction::ShrinkAndCreate;
+        assert!(plan.validate().is_ok());
+    }
+
+    #[test]
+    fn valid_plan_with_single_checkpoint() {
+        let mut plan = valid_plan();
+        plan.rollback_checkpoints = vec![RollbackCheckpoint::BeforePartitionChange];
+        assert!(plan.validate().is_ok());
+    }
+
+    // --- Validation: individual field errors ---
+
+    #[test]
+    fn empty_target_disk_fails() {
+        let mut plan = valid_plan();
+        plan.target_disk = String::new();
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("target_disk")));
+    }
+
+    #[test]
+    fn empty_efi_partition_fails() {
+        let mut plan = valid_plan();
+        plan.efi_partition = String::new();
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("efi_partition")));
+    }
+
+    #[test]
+    fn empty_root_partition_fails() {
+        let mut plan = valid_plan();
+        plan.root_partition = String::new();
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("root_partition")));
+    }
+
+    #[test]
+    fn wrong_filesystem_fails() {
+        let mut plan = valid_plan();
+        plan.filesystem = "btrfs".to_string();
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("ext4")));
+    }
+
+    #[test]
+    fn empty_rollback_checkpoints_fails() {
+        let mut plan = valid_plan();
+        plan.rollback_checkpoints = vec![];
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("rollback_checkpoints")));
+    }
+
+    // --- Validation: multiple errors at once ---
+
+    #[test]
+    fn multiple_errors_reported_together() {
+        let plan = InstallPlan {
+            target_disk: String::new(),
+            efi_partition: String::new(),
+            root_partition: String::new(),
+            filesystem: "xfs".to_string(),
+            boot_entry_policy: BootEntryPolicy::CreateAndKeepFallback,
+            partition_action: PartitionAction::UseExisting,
+            rollback_checkpoints: vec![],
+        };
+        let errors = plan.validate().unwrap_err();
+        assert_eq!(errors.len(), 5, "expected 5 errors: {errors:?}");
+    }
+
+    // --- JSON serialization ---
+
+    #[test]
+    fn to_json_pretty_produces_valid_json() {
+        let plan = valid_plan();
+        let json = plan.to_json_pretty();
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("must be valid JSON");
+        assert!(parsed.is_object());
+    }
+
+    #[test]
+    fn json_round_trip() {
+        let plan = valid_plan();
+        let json = plan.to_json_pretty();
+        let restored: InstallPlan = serde_json::from_str(&json).expect("deserialization failed");
+        assert_eq!(restored.target_disk, plan.target_disk);
+        assert_eq!(restored.efi_partition, plan.efi_partition);
+        assert_eq!(restored.root_partition, plan.root_partition);
+        assert_eq!(restored.filesystem, plan.filesystem);
+        assert_eq!(
+            restored.rollback_checkpoints.len(),
+            plan.rollback_checkpoints.len()
+        );
+    }
+
+    #[test]
+    fn json_contains_expected_fields() {
+        let plan = valid_plan();
+        let json = plan.to_json_pretty();
+        assert!(json.contains("target_disk"));
+        assert!(json.contains("efi_partition"));
+        assert!(json.contains("root_partition"));
+        assert!(json.contains("filesystem"));
+        assert!(json.contains("boot_entry_policy"));
+        assert!(json.contains("partition_action"));
+        assert!(json.contains("rollback_checkpoints"));
+    }
+
+    #[test]
+    fn json_preserves_disk_paths() {
+        let plan = valid_plan();
+        let json = plan.to_json_pretty();
+        assert!(json.contains("/dev/nvme0n1"));
+        assert!(json.contains("/dev/nvme0n1p1"));
+        assert!(json.contains("/dev/nvme0n1p5"));
+    }
+
+    // --- Enum serialization ---
+
+    #[test]
+    fn boot_entry_policy_serialization() {
+        let mut plan = valid_plan();
+        plan.boot_entry_policy = BootEntryPolicy::ReplaceOpenOSEntry;
+        let json = plan.to_json_pretty();
+        assert!(json.contains("ReplaceOpenOSEntry"));
+    }
+
+    #[test]
+    fn partition_action_serialization() {
+        let mut plan = valid_plan();
+        plan.partition_action = PartitionAction::ShrinkAndCreate;
+        let json = plan.to_json_pretty();
+        assert!(json.contains("ShrinkAndCreate"));
+    }
+
+    #[test]
+    fn rollback_checkpoints_serialization() {
+        let plan = valid_plan();
+        let json = plan.to_json_pretty();
+        assert!(json.contains("BeforePartitionChange"));
+        assert!(json.contains("BeforeFilesystemFormat"));
+        assert!(json.contains("BeforeBootEntryWrite"));
+    }
+}
