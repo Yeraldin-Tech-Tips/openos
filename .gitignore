@@ -2,5 +2,21 @@
 /.build
 /out
 /keys
+
+# OVMF firmware (auto-copied by run_qemu.sh from system when needed)
+/bios/*.fd
+
+# Sensitive and generated
+*.key
+*.pem
+*.crt
+.env
+.env.*
+*.secret
+secrets/
+
+# Build artifacts and temp
 *.log
 *.tmp
+*.bak
+*.swp
