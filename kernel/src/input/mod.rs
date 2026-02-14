@@ -173,7 +173,11 @@ fn handle_direct_key(code: u8, extended: bool, modifier_state: u32) -> Option<Ge
                 }
                 return None;
             }
-            0x1C | 0x39 => return crate::ui::compositor::activate_focused_target().ok().flatten(),
+            0x1C | 0x39 => {
+                return crate::ui::compositor::activate_focused_target()
+                    .ok()
+                    .flatten()
+            }
             0x01 => return Some(GestureAction::Home),
             _ => {}
         }

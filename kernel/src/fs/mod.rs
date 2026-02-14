@@ -460,7 +460,8 @@ fn render_apps(_pid: TaskId, out: &mut [u8]) -> usize {
 
 fn render_launcher_history(_pid: TaskId, out: &mut [u8]) -> usize {
     let mut writer = ByteWriter::new(out);
-    let mut snapshots = [EMPTY_LAUNCH_HISTORY_SNAPSHOT; crate::lifecycle::MAX_LAUNCH_HISTORY_SNAPSHOTS];
+    let mut snapshots =
+        [EMPTY_LAUNCH_HISTORY_SNAPSHOT; crate::lifecycle::MAX_LAUNCH_HISTORY_SNAPSHOTS];
     let snapshot_count = crate::lifecycle::snapshot_launch_history(&mut snapshots);
     let mut i = 0usize;
     while i < snapshot_count {

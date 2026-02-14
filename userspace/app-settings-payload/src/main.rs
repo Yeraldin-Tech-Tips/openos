@@ -3,7 +3,9 @@
 
 use core::arch::asm;
 
-use openos_syscall::{fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, proc_exit};
+use openos_syscall::{
+    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, proc_exit,
+};
 
 #[no_mangle]
 pub extern "sysv64" fn _start(_task_id: u64) -> ! {

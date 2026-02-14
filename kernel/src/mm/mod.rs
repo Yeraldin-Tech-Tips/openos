@@ -3,10 +3,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::{
-    arch::x86_64::serial,
-    boot::MemoryMap,
-};
+use crate::{arch::x86_64::serial, boot::MemoryMap};
 
 const PAGE_SIZE: usize = 4096;
 const TABLE_ENTRIES: usize = 512;
@@ -249,7 +246,8 @@ pub fn map_user_range(
             }
         };
 
-        let map_result = unsafe { map_user_page(root, space_ptr, page, frame as u64, writable, executable) };
+        let map_result =
+            unsafe { map_user_page(root, space_ptr, page, frame as u64, writable, executable) };
         if let Err(err) = map_result {
             unsafe {
                 recycle_user_frame_by_phys(space_ptr, frame as u64);
@@ -267,7 +265,11 @@ pub fn map_user_range(
     Ok(virt_addr)
 }
 
-pub fn unmap_user_range(asid: AddressSpaceId, virt_addr: u64, len: usize) -> Result<usize, UserMapError> {
+pub fn unmap_user_range(
+    asid: AddressSpaceId,
+    virt_addr: u64,
+    len: usize,
+) -> Result<usize, UserMapError> {
     if len == 0 {
         return Err(UserMapError::InvalidRange);
     }
@@ -360,7 +362,11 @@ fn map_image_pages(
             let src_off = (copy_start - image_base) as usize;
             let copy_len = (copy_end - copy_start) as usize;
             unsafe {
-                core::ptr::copy_nonoverlapping(staging_base.add(src_off), frame.add(dst_off), copy_len);
+                core::ptr::copy_nonoverlapping(
+                    staging_base.add(src_off),
+                    frame.add(dst_off),
+                    copy_len,
+                );
             }
         }
 
@@ -434,7 +440,8 @@ fn init_low_identity_kernel_map(space: *mut UserAddressSpace) {
             while pd_i < TABLE_ENTRIES {
                 let phys = (pdpt_i as u64) * (1024 * 1024 * 1024) as u64
                     + (pd_i as u64) * (2 * 1024 * 1024) as u64;
-                (*space).low_pd[pdpt_i].entries[pd_i] = phys | PTE_PRESENT | PTE_WRITABLE | PTE_HUGE;
+                (*space).low_pd[pdpt_i].entries[pd_i] =
+                    phys | PTE_PRESENT | PTE_WRITABLE | PTE_HUGE;
                 pd_i += 1;
             }
 
@@ -580,7 +587,10 @@ fn alloc_user_frame(space: *mut UserAddressSpace) -> Result<*mut u8, UserMapErro
     }
 }
 
-unsafe fn record_page_table_ref(space: *mut UserAddressSpace, idx: usize) -> Result<(), UserMapError> {
+unsafe fn record_page_table_ref(
+    space: *mut UserAddressSpace,
+    idx: usize,
+) -> Result<(), UserMapError> {
     let count = (*space).page_table_ref_count;
     if count >= MAX_PAGE_TABLES_PER_SPACE {
         return Err(UserMapError::ResourceTrackingOverflow);

@@ -72,15 +72,30 @@ pub fn init() {
     TIMER_IRQ_ENABLED.store(false, Ordering::Release);
     TIMER_TICK_COUNT.store(0, Ordering::Release);
 
-    tables::install_kernel_interrupt(UD_VECTOR, openos_fault_ud_entry as *const () as usize as u64);
-    tables::install_kernel_interrupt(GP_VECTOR, openos_fault_gp_entry as *const () as usize as u64);
-    tables::install_kernel_interrupt(PF_VECTOR, openos_fault_pf_entry as *const () as usize as u64);
-    tables::install_kernel_interrupt(TIMER_VECTOR, openos_irq_timer_entry as *const () as usize as u64);
+    tables::install_kernel_interrupt(
+        UD_VECTOR,
+        openos_fault_ud_entry as *const () as usize as u64,
+    );
+    tables::install_kernel_interrupt(
+        GP_VECTOR,
+        openos_fault_gp_entry as *const () as usize as u64,
+    );
+    tables::install_kernel_interrupt(
+        PF_VECTOR,
+        openos_fault_pf_entry as *const () as usize as u64,
+    );
+    tables::install_kernel_interrupt(
+        TIMER_VECTOR,
+        openos_irq_timer_entry as *const () as usize as u64,
+    );
     tables::install_kernel_interrupt(
         KEYBOARD_VECTOR,
         openos_irq_keyboard_entry as *const () as usize as u64,
     );
-    tables::install_kernel_interrupt(MOUSE_VECTOR, openos_irq_mouse_entry as *const () as usize as u64);
+    tables::install_kernel_interrupt(
+        MOUSE_VECTOR,
+        openos_irq_mouse_entry as *const () as usize as u64,
+    );
 
     init_pic();
     mask_all_irqs();

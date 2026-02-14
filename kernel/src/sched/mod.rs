@@ -329,7 +329,9 @@ pub fn spawn_from_current() -> Result<TaskId, SpawnTaskError> {
     .map_err(|err| match err {
         RegisterTaskError::TableFull => SpawnTaskError::TableFull,
         RegisterTaskError::MemoryMapFailed => SpawnTaskError::MemoryMapFailed,
-        RegisterTaskError::InvalidPid | RegisterTaskError::InvalidImage => SpawnTaskError::InvalidParent,
+        RegisterTaskError::InvalidPid | RegisterTaskError::InvalidImage => {
+            SpawnTaskError::InvalidParent
+        }
     })?;
 
     Ok(pid)
@@ -413,7 +415,9 @@ pub fn reserve_current_vm_range(len: usize) -> Result<u64, VmRangeError> {
 
         let aligned_len = align_up_u64(len as u64).ok_or(VmRangeError::RangeOverflow)?;
         let start = align_up_u64(task.next_vm_base).ok_or(VmRangeError::RangeOverflow)?;
-        let end = start.checked_add(aligned_len).ok_or(VmRangeError::RangeOverflow)?;
+        let end = start
+            .checked_add(aligned_len)
+            .ok_or(VmRangeError::RangeOverflow)?;
         if end == 0 || end > VM_DYNAMIC_LIMIT_EXCLUSIVE {
             return Err(VmRangeError::RangeOverflow);
         }
@@ -769,11 +773,15 @@ unsafe fn dequeue_exit_event(parent_pid: TaskId) -> Option<(TaskId, i64)> {
 }
 
 unsafe fn task_ptr_const(slot: usize) -> *const TaskDescriptor {
-    core::ptr::addr_of!(TASKS).cast::<TaskDescriptor>().add(slot)
+    core::ptr::addr_of!(TASKS)
+        .cast::<TaskDescriptor>()
+        .add(slot)
 }
 
 unsafe fn task_ptr_mut(slot: usize) -> *mut TaskDescriptor {
-    core::ptr::addr_of_mut!(TASKS).cast::<TaskDescriptor>().add(slot)
+    core::ptr::addr_of_mut!(TASKS)
+        .cast::<TaskDescriptor>()
+        .add(slot)
 }
 
 unsafe fn run_user_entry(
@@ -787,5 +795,7 @@ unsafe fn run_user_entry(
 }
 
 fn align_up_u64(value: u64) -> Option<u64> {
-    value.checked_add(PAGE_SIZE - 1).map(|v| v & !(PAGE_SIZE - 1))
+    value
+        .checked_add(PAGE_SIZE - 1)
+        .map(|v| v & !(PAGE_SIZE - 1))
 }

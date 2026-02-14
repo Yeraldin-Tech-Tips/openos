@@ -1,4 +1,4 @@
-.PHONY: build image usb-image qemu fmt clippy
+.PHONY: build image usb-image qemu fmt clippy test check
 
 build:
 	./tools/image/build.sh
@@ -17,3 +17,8 @@ fmt:
 
 clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
+
+test:
+	cargo test -p abi -p openos-installer-gui
+
+check: fmt clippy test

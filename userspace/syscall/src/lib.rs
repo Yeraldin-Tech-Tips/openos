@@ -158,7 +158,12 @@ pub fn ipc_recv(header_out: &mut UiMessageHeader, payload_out: &mut [u8]) -> Sys
 }
 
 #[inline(always)]
-pub fn gfx_submit_scene(top_color: u32, bottom_color: u32, dock_color: u32, dock_height: u32) -> SyscallResult {
+pub fn gfx_submit_scene(
+    top_color: u32,
+    bottom_color: u32,
+    dock_color: u32,
+    dock_height: u32,
+) -> SyscallResult {
     invoke(
         Syscall::GfxSubmitScene,
         top_color as u64,
