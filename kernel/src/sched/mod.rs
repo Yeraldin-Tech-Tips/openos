@@ -132,6 +132,7 @@ pub struct TaskRegistration {
     pub image_size: usize,
     pub entry_staging: *const u8,
     pub segment_count: usize,
+    pub image_source_id: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -145,8 +146,8 @@ pub struct TaskDescriptor {
     pub context: UserContext,
     pub image_base: u64,
     pub image_size: usize,
-    pub entry_staging: *const u8,
     pub segment_count: usize,
+    pub image_source_id: u32,
     next_vm_base: u64,
     pending_exit_status: i64,
     regs: CpuRegisters,
@@ -210,8 +211,8 @@ const EMPTY_TASK: TaskDescriptor = TaskDescriptor {
     },
     image_base: 0,
     image_size: 0,
-    entry_staging: core::ptr::null(),
     segment_count: 0,
+    image_source_id: 0,
     next_vm_base: VM_DYNAMIC_BASE,
     pending_exit_status: 0,
     regs: CpuRegisters::zeroed(),
@@ -254,7 +255,11 @@ pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskE
     if reg.pid.0 == 0 {
         return Err(RegisterTaskError::InvalidPid);
     }
-    if reg.image_size == 0 || reg.entry_staging.is_null() || reg.context.instruction_pointer == 0 {
+    if reg.image_size == 0
+        || reg.entry_staging.is_null()
+        || reg.context.instruction_pointer == 0
+        || reg.image_source_id == 0
+    {
         return Err(RegisterTaskError::InvalidImage);
     }
 
@@ -284,8 +289,8 @@ pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskE
             context: reg.context,
             image_base: reg.image_base,
             image_size: reg.image_size,
-            entry_staging: reg.entry_staging,
             segment_count: reg.segment_count,
+            image_source_id: reg.image_source_id,
             next_vm_base: VM_DYNAMIC_BASE,
             pending_exit_status: 0,
             regs,
@@ -309,22 +314,26 @@ pub fn spawn_from_current() -> Result<TaskId, SpawnTaskError> {
     let parent = unsafe { task_ptr_const(current_slot).read() };
     if !matches!(parent.state, TaskState::Running | TaskState::Ready)
         || parent.entry_point == 0
-        || parent.entry_staging.is_null()
         || parent.image_size == 0
+        || parent.image_source_id == 0
     {
         return Err(SpawnTaskError::InvalidParent);
     }
 
+    let loaded = crate::init::resolve_task_image(parent.image_source_id)
+        .map_err(|_| SpawnTaskError::InvalidParent)?;
+
     let pid = allocate_pid();
-    let child_context = UserContext::for_entry(parent.entry_point);
+    let child_context = UserContext::for_entry(loaded.entry_virtual);
     register_user_task(TaskRegistration {
         pid,
         parent_pid: parent.pid,
         context: child_context,
-        image_base: parent.image_base,
-        image_size: parent.image_size,
-        entry_staging: parent.entry_staging,
-        segment_count: parent.segment_count,
+        image_base: loaded.image_base,
+        image_size: loaded.image_size,
+        entry_staging: loaded.entry_staging,
+        segment_count: loaded.segment_count,
+        image_source_id: parent.image_source_id,
     })
     .map_err(|err| match err {
         RegisterTaskError::TableFull => SpawnTaskError::TableFull,
