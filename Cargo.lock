@@ -84,6 +84,7 @@ name = "openos-init"
 version = "0.1.0"
 dependencies = [
  "abi",
+ "openos-syscall",
 ]
 
 [[package]]
