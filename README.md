@@ -35,14 +35,18 @@ Boot status today:
 - `IpcSend`/`IpcRecv` now move validated UI lifecycle messages through a kernel queue with bounded payloads
 - `GfxSubmitScene`/`GfxPresent` now render a simple gradient + dock style backdrop on the boot framebuffer
 - Compositor overlay now draws a visible status bar, dock icons, and lifecycle-driven app cards over scene gradients
-- `InputSubscribe`/`InputRead` now run through a PS/2 IRQ1-backed gesture queue, and gesture presses apply visible scene transitions
+- Home UI now renders an iPadOS-like layout with wallpaper layers, widgets, app grid, and dock
+- Foreground app panels for shell/settings/files now include close/actions controls and live lifecycle + IPC status text
+- Hover and press feedback are now rendered for widgets, app icons, dock icons, and foreground panel controls
+- Widget drag (clock/match/weather) and dock icon reorder are now available as prototype interactions
+- `InputSubscribe`/`InputRead` now run through PS/2 IRQ1 keyboard + IRQ12 mouse input, including pointer motion, click, and drag actions
 - PID1 launcher now keeps recent-app quick-switch history (left/right) and Home toggles between shell and last non-shell app
 - Kernel installs `#UD/#GP/#PF` handlers plus timer IRQ0 (PIC+PIT) for early fault containment and scheduling ticks
 - Scheduler now captures user register context on timer ticks and supports round-robin preemption state transitions
 - Userspace tasks now get distinct ASIDs/page tables so timer switches can hop across isolated CR3 contexts
 - User faults retire offending tasks and release their address-space/page resources for reuse
 - A shared `userspace/syscall` crate now centralizes ring3 `int 0x80` wrappers for payload/app reuse
-- Headless QEMU validation works via serial logs
+- Headless QEMU validation works via serial logs, and SDL UI boot is available through the UI runner script
 
 ## Boot targets
 
@@ -78,6 +82,12 @@ Boot status today:
 ```
 
 `run_qemu.sh` prefers `out/openos-usb-x86_64.img` when present, then `out/efi-root` via a temporary ESP image, then `out/openos-live-x86_64.iso`.
+
+Run with SDL window output (requires desktop/X11 availability):
+
+```bash
+./tools/image/run_qemu_ui.sh
+```
 
 Generate an ISO (experimental path):
 
