@@ -9,13 +9,13 @@ impl KernelDriver for IntelEthernet {
     }
 
     fn probe(&self) -> bool {
-        // TODO: PCI scan for Intel Ethernet IDs.
-        true
+        // TODO: Replace with PCI scan for Intel Ethernet IDs.
+        false
     }
 
     fn init(&self) -> Result<(), DriverError> {
-        // TODO: e1000/e1000e-style init path.
-        Ok(())
+        // TODO: e1000/e1000e-style init path once probe and BAR mapping exist.
+        Err(DriverError::NotReady)
     }
 }
 
