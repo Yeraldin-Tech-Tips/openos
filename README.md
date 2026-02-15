@@ -34,6 +34,7 @@ Boot status today:
 - `NetSocket`/`NetConnect`/`NetSend`/`NetRecv` now provide loopback sockets plus a NIC transmit path (`nic0`) for userspace validation
 - `IpcSend`/`IpcRecv` now move validated UI lifecycle messages through a kernel queue with bounded payloads
 - `GfxSubmitScene`/`GfxPresent` now render a simple gradient + dock style backdrop on the boot framebuffer
+- Framebuffer fill paths now consistently address pixels by `(y * stride + x)` across solid, gradient, strip, and console clear operations
 - Compositor overlay now draws a visible status bar, dock icons, and lifecycle-driven app cards over scene gradients
 - Home UI now renders an iPadOS-like layout with wallpaper layers, widgets, app grid, and dock
 - Foreground app panels for shell/settings/files now include close/actions controls and live lifecycle + IPC status text
