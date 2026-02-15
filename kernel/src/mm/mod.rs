@@ -1,6 +1,7 @@
 use core::{
     arch::asm,
-    sync::atomic::{AtomicUsize, Ordering},
+    hint::spin_loop,
+    sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering},
 };
 
 use crate::{arch::x86_64::serial, boot::MemoryMap};
@@ -93,6 +94,13 @@ static NEXT_PAGE_TABLE: AtomicUsize = AtomicUsize::new(0);
 static NEXT_USER_FRAME: AtomicUsize = AtomicUsize::new(0);
 static FREE_PAGE_TABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FREE_USER_FRAME_COUNT: AtomicUsize = AtomicUsize::new(0);
+// All free-list stack operations (alloc and recycle paths) use this interrupt-safe
+// critical section so pop/push never mix synchronization models.
+//
+// Stress-validation strategy note: add a concurrency harness that drives parallel
+// map/unmap/release cycles while timer interrupts are enabled and checks that each
+// recycled index is observed exactly once and never out of bounds.
+static FREE_LIST_LOCK: AtomicBool = AtomicBool::new(false);
 
 static mut ADDRESS_SPACES: [UserAddressSpace; MAX_USER_ADDRESS_SPACES] =
     [UserAddressSpace::empty(); MAX_USER_ADDRESS_SPACES];
@@ -475,8 +483,10 @@ fn map_stack_pages(
 fn reset_allocator_state() {
     NEXT_PAGE_TABLE.store(0, Ordering::Release);
     NEXT_USER_FRAME.store(0, Ordering::Release);
-    FREE_PAGE_TABLE_COUNT.store(0, Ordering::Release);
-    FREE_USER_FRAME_COUNT.store(0, Ordering::Release);
+
+    let _guard = FreeListCriticalSection::enter();
+    FREE_PAGE_TABLE_COUNT.store(0, Ordering::Relaxed);
+    FREE_USER_FRAME_COUNT.store(0, Ordering::Relaxed);
 }
 
 fn reset_address_space_table() {
@@ -705,45 +715,104 @@ unsafe fn recycle_address_space_resources(space: *mut UserAddressSpace) {
 }
 
 fn pop_recycled_page_table_idx() -> Option<usize> {
-    let count = FREE_PAGE_TABLE_COUNT.load(Ordering::Acquire);
+    let _guard = FreeListCriticalSection::enter();
+    let count = FREE_PAGE_TABLE_COUNT.load(Ordering::Relaxed);
     if count == 0 {
         return None;
     }
 
     let next_count = count - 1;
-    FREE_PAGE_TABLE_COUNT.store(next_count, Ordering::Release);
+    // Decrement count before consuming the slot, then pair with the producer's
+    // release fence so the slot write is visible before we read it.
+    FREE_PAGE_TABLE_COUNT.store(next_count, Ordering::Relaxed);
+    fence(Ordering::Acquire);
     Some(unsafe { FREE_PAGE_TABLE_STACK[next_count] as usize })
 }
 
 fn pop_recycled_frame_idx() -> Option<usize> {
-    let count = FREE_USER_FRAME_COUNT.load(Ordering::Acquire);
+    let _guard = FreeListCriticalSection::enter();
+    let count = FREE_USER_FRAME_COUNT.load(Ordering::Relaxed);
     if count == 0 {
         return None;
     }
 
     let next_count = count - 1;
-    FREE_USER_FRAME_COUNT.store(next_count, Ordering::Release);
+    // Decrement count before consuming the slot, then pair with the producer's
+    // release fence so the slot write is visible before we read it.
+    FREE_USER_FRAME_COUNT.store(next_count, Ordering::Relaxed);
+    fence(Ordering::Acquire);
     Some(unsafe { FREE_USER_FRAME_STACK[next_count] as usize })
 }
 
 unsafe fn recycle_page_table_idx(idx: usize) {
-    let count = FREE_PAGE_TABLE_COUNT.load(Ordering::Acquire);
+    let _guard = FreeListCriticalSection::enter();
+    let count = FREE_PAGE_TABLE_COUNT.load(Ordering::Relaxed);
     if count >= MAX_PAGE_TABLES {
         return;
     }
 
+    // Publish slot value before incrementing count so consumers never observe
+    // a count that includes an uninitialized stack entry.
     FREE_PAGE_TABLE_STACK[count] = idx as u16;
-    FREE_PAGE_TABLE_COUNT.store(count + 1, Ordering::Release);
+    fence(Ordering::Release);
+    FREE_PAGE_TABLE_COUNT.store(count + 1, Ordering::Relaxed);
 }
 
 unsafe fn recycle_frame_idx(idx: usize) {
-    let count = FREE_USER_FRAME_COUNT.load(Ordering::Acquire);
+    let _guard = FreeListCriticalSection::enter();
+    let count = FREE_USER_FRAME_COUNT.load(Ordering::Relaxed);
     if count >= MAX_USER_FRAMES {
         return;
     }
 
+    // Publish slot value before incrementing count so consumers never observe
+    // a count that includes an uninitialized stack entry.
     FREE_USER_FRAME_STACK[count] = idx as u16;
-    FREE_USER_FRAME_COUNT.store(count + 1, Ordering::Release);
+    fence(Ordering::Release);
+    FREE_USER_FRAME_COUNT.store(count + 1, Ordering::Relaxed);
+}
+
+struct FreeListCriticalSection {
+    interrupts_were_enabled: bool,
+}
+
+impl FreeListCriticalSection {
+    fn enter() -> Self {
+        let interrupts_were_enabled = interrupts_enabled();
+        unsafe {
+            asm!("cli", options(nostack, preserves_flags));
+        }
+
+        while FREE_LIST_LOCK
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            spin_loop();
+        }
+
+        Self {
+            interrupts_were_enabled,
+        }
+    }
+}
+
+impl Drop for FreeListCriticalSection {
+    fn drop(&mut self) {
+        FREE_LIST_LOCK.store(false, Ordering::Release);
+        if self.interrupts_were_enabled {
+            unsafe {
+                asm!("sti", options(nostack, preserves_flags));
+            }
+        }
+    }
+}
+
+fn interrupts_enabled() -> bool {
+    let rflags: u64;
+    unsafe {
+        asm!("pushfq; pop {}", out(reg) rflags, options(nomem, preserves_flags));
+    }
+    (rflags & (1 << 9)) != 0
 }
 
 unsafe fn recycle_user_frame_by_phys(space: *mut UserAddressSpace, phys_addr: u64) {
