@@ -8,11 +8,12 @@ impl KernelDriver for HidStack {
     }
 
     fn probe(&self) -> bool {
-        true
+        // TODO: Replace with USB/PS2 controller presence checks.
+        false
     }
 
     fn init(&self) -> Result<(), DriverError> {
-        // TODO: USB HID + PS/2 compatibility layer.
-        Ok(())
+        // TODO: Implement USB HID + PS/2 compatibility layer.
+        Err(DriverError::NotReady)
     }
 }

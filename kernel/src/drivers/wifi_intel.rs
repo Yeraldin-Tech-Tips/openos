@@ -8,12 +8,12 @@ impl KernelDriver for IntelWifi {
     }
 
     fn probe(&self) -> bool {
-        // TODO: PCI scan for supported Intel WLAN IDs.
-        true
+        // TODO: Replace with PCI scan for supported Intel WLAN IDs.
+        false
     }
 
     fn init(&self) -> Result<(), DriverError> {
-        // TODO: Firmware loading and WPA2 station mode support.
-        Ok(())
+        // TODO: Implement firmware loading and WPA2 station mode support.
+        Err(DriverError::Unsupported)
     }
 }

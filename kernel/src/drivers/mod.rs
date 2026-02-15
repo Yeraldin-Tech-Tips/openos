@@ -1,6 +1,15 @@
+//! Kernel driver stack status.
+//!
+//! Current in-tree drivers are scaffolding only and intentionally conservative:
+//! probes return `false` until hardware detection is implemented.
+//! `init()` methods return structured `DriverError` values to make readiness and
+//! unsupported states explicit in early boot logs.
+
 mod ethernet_intel;
 mod hid;
 mod wifi_intel;
+
+use crate::arch::x86_64::serial;
 
 pub trait KernelDriver {
     fn name(&self) -> &'static str;
@@ -13,6 +22,7 @@ pub enum DriverError {
     ProbeFailed,
     InitFailed,
     Unsupported,
+    NotReady,
 }
 
 pub fn init() {
@@ -23,8 +33,29 @@ pub fn init() {
     ];
 
     for driver in drivers {
-        if driver.probe() {
-            let _ = driver.init();
+        let detected = driver.probe();
+        if detected {
+            serial::write_line("[openos-kernel] driver.probe ok");
+            serial::write_line(driver.name());
+            match driver.init() {
+                Ok(()) => {
+                    serial::write_line("[openos-kernel] driver.init ok");
+                    serial::write_line(driver.name());
+                }
+                Err(error) => {
+                    serial::write_line("[openos-kernel] driver.init failed");
+                    serial::write_line(driver.name());
+                    serial::write_line(match error {
+                        DriverError::ProbeFailed => "ProbeFailed",
+                        DriverError::InitFailed => "InitFailed",
+                        DriverError::Unsupported => "Unsupported",
+                        DriverError::NotReady => "NotReady",
+                    });
+                }
+            }
+        } else {
+            serial::write_line("[openos-kernel] driver.probe failed");
+            serial::write_line(driver.name());
         }
     }
 }
