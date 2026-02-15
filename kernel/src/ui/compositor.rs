@@ -5,7 +5,11 @@ use core::{
 
 use abi::input::GestureAction;
 
-use crate::ui::framebuffer::{self, FramebufferError};
+use crate::{
+    ipc, lifecycle,
+    lifecycle::{AppKind, AppState},
+    ui::framebuffer::{self, FramebufferError},
+};
 
 #[derive(Clone, Copy)]
 pub struct SurfaceId(pub u32);
@@ -95,6 +99,7 @@ const TRANSITION_STEPS: u32 = 7;
 const TRANSITION_SPIN: u32 = 50_000;
 const DOCK_ICON_COUNT: usize = 10;
 const HOME_TARGET_COUNT: usize = 23;
+const INVALID_TARGET_INDEX: usize = usize::MAX;
 
 #[derive(Clone, Copy, Default)]
 struct MotionState {
@@ -151,11 +156,44 @@ enum TargetAction {
     ToggleClock,
     ToggleMatch,
     ToggleWeather,
+    CloseForegroundApp,
+    ForegroundPrimary,
+    ForegroundSecondary,
     Launch(GestureAction),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TargetId {
+    ClockWidget,
+    MatchWidget,
+    WeatherWidget,
+    AppIcon(usize),
+    DockIcon(usize),
+    AppClose,
+    AppPrimary,
+    AppSecondary,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DragTarget {
+    None,
+    ClockWidget,
+    MatchWidget,
+    WeatherWidget,
+    DockIcon(usize),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ActiveApp {
+    None,
+    Shell,
+    Settings,
+    Files,
 }
 
 #[derive(Clone, Copy)]
 struct HomeTarget {
+    id: TargetId,
     frame: Rect,
     action: TargetAction,
 }
@@ -169,6 +207,7 @@ impl HomeTarget {
                 width: 0,
                 height: 0,
             },
+            id: TargetId::AppIcon(0),
             action: TargetAction::Launch(GestureAction::Home),
         }
     }
@@ -192,28 +231,58 @@ impl HomeTargets {
 #[derive(Clone, Copy)]
 struct UiState {
     focus_index: usize,
+    hover_index: usize,
+    pressed_index: usize,
     pointer_x: u32,
     pointer_y: u32,
     pointer_initialized: bool,
     pointer_visible: bool,
     pointer_pressed: bool,
+    drag_target: DragTarget,
+    drag_moved: bool,
     clock_digital: bool,
     match_expanded: bool,
     weather_fahrenheit: bool,
+    widget_clock_dx: i32,
+    widget_clock_dy: i32,
+    widget_match_dx: i32,
+    widget_match_dy: i32,
+    widget_weather_dx: i32,
+    widget_weather_dy: i32,
+    dock_order: [u8; DOCK_ICON_COUNT],
+    active_app: ActiveApp,
+    shell_network_flip: bool,
+    settings_airplane: bool,
+    files_cursor: u8,
 }
 
 impl UiState {
     const fn new() -> Self {
         Self {
             focus_index: 0,
+            hover_index: INVALID_TARGET_INDEX,
+            pressed_index: INVALID_TARGET_INDEX,
             pointer_x: 0,
             pointer_y: 0,
             pointer_initialized: false,
             pointer_visible: false,
             pointer_pressed: false,
+            drag_target: DragTarget::None,
+            drag_moved: false,
             clock_digital: false,
             match_expanded: false,
             weather_fahrenheit: false,
+            widget_clock_dx: 0,
+            widget_clock_dy: 0,
+            widget_match_dx: 0,
+            widget_match_dy: 0,
+            widget_weather_dx: 0,
+            widget_weather_dy: 0,
+            dock_order: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            active_app: ActiveApp::None,
+            shell_network_flip: false,
+            settings_airplane: false,
+            files_cursor: 0,
         }
     }
 }
@@ -275,6 +344,9 @@ pub fn apply_gesture(action: GestureAction) -> Result<(), PresentError> {
 
     unsafe {
         LAST_SCENE = target;
+        if matches!(action, GestureAction::Home) {
+            UI_STATE.active_app = ActiveApp::None;
+        }
     }
     SCENE_SUBMITTED.store(true, Ordering::Release);
     Ok(())
@@ -315,6 +387,7 @@ pub fn activate_focused_target() -> Result<Option<GestureAction>, PresentError> 
         if UI_STATE.focus_index >= targets.len {
             UI_STATE.focus_index = 0;
         }
+        UI_STATE.hover_index = UI_STATE.focus_index;
         apply_target_action(targets.items[UI_STATE.focus_index].action)
     };
     render_scene(scene, MotionState::default())?;
@@ -330,6 +403,7 @@ pub fn move_pointer(dx: i32, dy: i32) -> Result<(), PresentError> {
     let (width, height) = framebuffer::dimensions().map_err(map_framebuffer_error)?;
     let max_x = width.saturating_sub(1);
     let max_y = height.saturating_sub(1);
+    let targets = build_home_targets(width, height, scene, MotionState::default());
 
     unsafe {
         if !UI_STATE.pointer_initialized {
@@ -344,6 +418,57 @@ pub fn move_pointer(dx: i32, dy: i32) -> Result<(), PresentError> {
 
         UI_STATE.pointer_x = shift_u32(UI_STATE.pointer_x, dx).min(max_x);
         UI_STATE.pointer_y = shift_u32(UI_STATE.pointer_y, dy).min(max_y);
+
+        if UI_STATE.pointer_pressed {
+            match UI_STATE.drag_target {
+                DragTarget::ClockWidget => {
+                    UI_STATE.widget_clock_dx = UI_STATE.widget_clock_dx.saturating_add(dx);
+                    UI_STATE.widget_clock_dy = UI_STATE.widget_clock_dy.saturating_add(dy);
+                    UI_STATE.drag_moved |= dx != 0 || dy != 0;
+                }
+                DragTarget::MatchWidget => {
+                    UI_STATE.widget_match_dx = UI_STATE.widget_match_dx.saturating_add(dx);
+                    UI_STATE.widget_match_dy = UI_STATE.widget_match_dy.saturating_add(dy);
+                    UI_STATE.drag_moved |= dx != 0 || dy != 0;
+                }
+                DragTarget::WeatherWidget => {
+                    UI_STATE.widget_weather_dx = UI_STATE.widget_weather_dx.saturating_add(dx);
+                    UI_STATE.widget_weather_dy = UI_STATE.widget_weather_dy.saturating_add(dy);
+                    UI_STATE.drag_moved |= dx != 0 || dy != 0;
+                }
+                DragTarget::DockIcon(from_slot) => {
+                    if let Some(hit) = hit_test_targets(&targets, UI_STATE.pointer_x, UI_STATE.pointer_y) {
+                        if let TargetId::DockIcon(to_slot) = targets.items[hit].id {
+                            if from_slot != to_slot {
+                                let from_value = UI_STATE.dock_order[from_slot];
+                                UI_STATE.dock_order[from_slot] = UI_STATE.dock_order[to_slot];
+                                UI_STATE.dock_order[to_slot] = from_value;
+                                UI_STATE.drag_target = DragTarget::DockIcon(to_slot);
+                                UI_STATE.drag_moved = true;
+                                UI_STATE.focus_index = hit;
+                            }
+                        }
+                    }
+                }
+                DragTarget::None => {}
+            }
+        }
+
+        let max_dx = (width / 3) as i32;
+        let max_dy = (height / 4) as i32;
+        UI_STATE.widget_clock_dx = clamp_i32(UI_STATE.widget_clock_dx, -max_dx, max_dx);
+        UI_STATE.widget_clock_dy = clamp_i32(UI_STATE.widget_clock_dy, -max_dy, max_dy);
+        UI_STATE.widget_match_dx = clamp_i32(UI_STATE.widget_match_dx, -max_dx, max_dx);
+        UI_STATE.widget_match_dy = clamp_i32(UI_STATE.widget_match_dy, -max_dy, max_dy);
+        UI_STATE.widget_weather_dx = clamp_i32(UI_STATE.widget_weather_dx, -max_dx, max_dx);
+        UI_STATE.widget_weather_dy = clamp_i32(UI_STATE.widget_weather_dy, -max_dy, max_dy);
+
+    }
+
+    let hover_targets = build_home_targets(width, height, scene, MotionState::default());
+    unsafe {
+        UI_STATE.hover_index = hit_test_targets(&hover_targets, UI_STATE.pointer_x, UI_STATE.pointer_y)
+            .unwrap_or(INVALID_TARGET_INDEX);
     }
 
     render_scene(scene, MotionState::default())
@@ -364,15 +489,30 @@ pub fn set_pointer_button(pressed: bool) -> Result<Option<GestureAction>, Presen
 
         if pressed {
             UI_STATE.pointer_pressed = true;
+            UI_STATE.drag_moved = false;
+            UI_STATE.drag_target = DragTarget::None;
+            UI_STATE.pressed_index = INVALID_TARGET_INDEX;
+            UI_STATE.hover_index = INVALID_TARGET_INDEX;
             if let Some(hit) = hit_test_targets(&targets, UI_STATE.pointer_x, UI_STATE.pointer_y) {
                 UI_STATE.focus_index = hit;
+                UI_STATE.hover_index = hit;
+                UI_STATE.pressed_index = hit;
+                UI_STATE.drag_target = drag_target_for_id(targets.items[hit].id);
             }
         } else if UI_STATE.pointer_pressed {
             UI_STATE.pointer_pressed = false;
-            if let Some(hit) = hit_test_targets(&targets, UI_STATE.pointer_x, UI_STATE.pointer_y) {
+            let release_hit = hit_test_targets(&targets, UI_STATE.pointer_x, UI_STATE.pointer_y);
+            UI_STATE.hover_index = release_hit.unwrap_or(INVALID_TARGET_INDEX);
+
+            if let Some(hit) = release_hit {
                 UI_STATE.focus_index = hit;
-                action = apply_target_action(targets.items[hit].action);
+                if !UI_STATE.drag_moved && UI_STATE.pressed_index == hit {
+                    action = apply_target_action(targets.items[hit].action);
+                }
             }
+            UI_STATE.drag_target = DragTarget::None;
+            UI_STATE.pressed_index = INVALID_TARGET_INDEX;
+            UI_STATE.drag_moved = false;
         }
         action
     };
@@ -407,6 +547,7 @@ fn step_focus(delta: i32) -> Result<(), PresentError> {
             index -= len;
         }
         UI_STATE.focus_index = index as usize;
+        UI_STATE.hover_index = UI_STATE.focus_index;
 
         let frame = targets.items[UI_STATE.focus_index].frame;
         UI_STATE.pointer_x = frame.x.max(0) as u32 + frame.width / 2;
@@ -460,8 +601,10 @@ fn draw_scene_overlay(scene: SimpleScene, motion: MotionState) -> Result<(), Fra
     draw_app_grid(layout, motion)?;
     draw_dock(width, height, scene, motion)?;
     draw_page_dots(width, height, motion)?;
+    draw_foreground_app(width, height)?;
 
     let targets = build_home_targets(width, height, scene, motion);
+    draw_hover_press_effects(&targets)?;
     draw_focus_indicator(&targets)?;
     draw_pointer_cursor(width, height)?;
     Ok(())
@@ -596,20 +739,33 @@ fn draw_widgets(
 ) -> Result<(), FramebufferError> {
     let dx = motion.content_dx;
     let dy = motion.content_dy;
+    let (clock_dx, clock_dy, match_dx, match_dy, weather_dx, weather_dy) = unsafe {
+        (
+            UI_STATE.widget_clock_dx,
+            UI_STATE.widget_clock_dy,
+            UI_STATE.widget_match_dx,
+            UI_STATE.widget_match_dy,
+            UI_STATE.widget_weather_dx,
+            UI_STATE.widget_weather_dy,
+        )
+    };
 
-    let clock_x = shift_u32(layout.left_margin, dx);
-    let clock_y = shift_u32(layout.top_y, dy);
+    let clock_x = shift_u32(layout.left_margin, dx + clock_dx);
+    let clock_y = shift_u32(layout.top_y, dy + clock_dy);
     draw_clock_widget(clock_x, clock_y, layout.widget_size, clock_digital)?;
 
     let match_x = shift_u32(
         layout.left_margin + layout.widget_size + layout.widget_gap,
-        dx,
+        dx + match_dx,
     );
-    let match_y = shift_u32(layout.top_y, dy);
+    let match_y = shift_u32(layout.top_y, dy + match_dy);
     draw_match_widget(match_x, match_y, layout.widget_size, match_expanded)?;
 
-    let weather_x = shift_u32(layout.left_margin, dx);
-    let weather_y = shift_u32(layout.top_y + layout.widget_size + layout.widget_gap, dy);
+    let weather_x = shift_u32(layout.left_margin, dx + weather_dx);
+    let weather_y = shift_u32(
+        layout.top_y + layout.widget_size + layout.widget_gap,
+        dy + weather_dy,
+    );
     let weather_w = layout.widget_size.saturating_mul(2) + layout.widget_gap;
     draw_weather_widget(
         weather_x,
@@ -1007,9 +1163,11 @@ fn draw_dock(
 
     let mut x = dock_x + pad;
     let y = dock_y + (dock_h.saturating_sub(icon_size)) / 2;
+    let order = unsafe { UI_STATE.dock_order };
     let mut i = 0usize;
-    while i < specs.len() {
-        draw_app_icon(x, y, icon_size, specs[i], false)?;
+    while i < DOCK_ICON_COUNT {
+        let slot = (order[i] as usize).min(specs.len().saturating_sub(1));
+        draw_app_icon(x, y, icon_size, specs[slot], false)?;
         x += icon_size + gap;
         if i == separator_after {
             framebuffer::fill_rect_alpha(
@@ -1035,6 +1193,247 @@ fn draw_page_dots(width: u32, height: u32, motion: MotionState) -> Result<(), Fr
     Ok(())
 }
 
+fn draw_foreground_app(width: u32, height: u32) -> Result<(), FramebufferError> {
+    let (active_app, shell_network_flip, settings_airplane, files_cursor) = unsafe {
+        (
+            UI_STATE.active_app,
+            UI_STATE.shell_network_flip,
+            UI_STATE.settings_airplane,
+            UI_STATE.files_cursor,
+        )
+    };
+    if active_app == ActiveApp::None {
+        return Ok(());
+    }
+
+    let shell_status = lifecycle::status_for_kind(AppKind::Shell);
+    let settings_status = lifecycle::status_for_kind(AppKind::Settings);
+    let files_status = lifecycle::status_for_kind(AppKind::Files);
+    let lifecycle_stats = lifecycle::stats();
+    let ipc_stats = ipc::stats();
+
+    let frame = app_window_frame(width, height);
+    let fx = frame.x.max(0) as u32;
+    let fy = frame.y.max(0) as u32;
+    let fw = frame.width;
+    let fh = frame.height;
+
+    framebuffer::fill_rounded_rect_alpha(
+        fx.saturating_sub(6),
+        fy.saturating_add(8),
+        fw.saturating_add(12),
+        fh,
+        26,
+        0x04070D,
+        178,
+    )?;
+    framebuffer::fill_rounded_rect_alpha(fx, fy, fw, fh, 24, 0x0A121F, 228)?;
+    framebuffer::fill_rounded_rect_alpha(
+        fx + 2,
+        fy + 2,
+        fw.saturating_sub(4),
+        34,
+        22,
+        0x1B2B3F,
+        172,
+    )?;
+    framebuffer::fill_circle_alpha(fx + fw.saturating_sub(24), fy + 18, 8, 0xE5646A, 222)?;
+    framebuffer::draw_text(fx + 16, fy + 12, active_app_title(active_app), 0xF3F8FF)?;
+
+    let body_y = fy + 46;
+    framebuffer::fill_rounded_rect_alpha(
+        fx + 10,
+        body_y,
+        fw.saturating_sub(20),
+        fh.saturating_sub(58),
+        14,
+        0x0E1B2E,
+        198,
+    )?;
+
+    match active_app {
+        ActiveApp::Shell => {
+            framebuffer::draw_text(fx + 24, body_y + 18, b"NETWORK HEARTBEAT", 0xD8E7FC)?;
+            draw_kind_status(fx + 24, body_y + 36, shell_status)?;
+            draw_metric_u64(
+                fx + 24,
+                body_y + 70,
+                b"IPC QUEUE ",
+                ipc_stats.queued_messages as u64,
+                0xC5D8EE,
+            )?;
+            draw_metric_u64(
+                fx + 24,
+                body_y + 84,
+                b"SPAWN ",
+                lifecycle_stats.spawn_total,
+                0xC5D8EE,
+            )?;
+            if shell_network_flip {
+                framebuffer::draw_text(fx + 24, body_y + 98, b"NET: PING", 0x9AD5A1)?;
+            } else {
+                framebuffer::draw_text(fx + 24, body_y + 98, b"NET: OK", 0x9AD5A1)?;
+            }
+            framebuffer::fill_rounded_rect_alpha(fx + 20, fy + fh - 40, 132, 24, 8, 0x2A6CF0, 216)?;
+            framebuffer::draw_text(fx + 34, fy + fh - 33, b"PING TOGGLE", 0xF4F9FF)?;
+        }
+        ActiveApp::Settings => {
+            framebuffer::draw_text(fx + 24, body_y + 18, b"SYSTEM SETTINGS", 0xD8E7FC)?;
+            draw_kind_status(fx + 24, body_y + 36, settings_status)?;
+            draw_metric_u64(
+                fx + 24,
+                body_y + 70,
+                b"FG PID ",
+                lifecycle_stats.foreground_pid.0 as u64,
+                0xC5D8EE,
+            )?;
+            framebuffer::draw_text(fx + 24, body_y + 84, b"WIFI: ON", 0xA9D4A8)?;
+            if settings_airplane {
+                framebuffer::draw_text(fx + 24, body_y + 98, b"AIRPLANE: ON", 0xF3C17A)?;
+            } else {
+                framebuffer::draw_text(fx + 24, body_y + 98, b"AIRPLANE: OFF", 0xF3C17A)?;
+            }
+            framebuffer::fill_rounded_rect_alpha(fx + 20, fy + fh - 40, 152, 24, 8, 0x4C84F2, 216)?;
+            framebuffer::draw_text(fx + 32, fy + fh - 33, b"TOGGLE AIRPLANE", 0xF4F9FF)?;
+        }
+        ActiveApp::Files => {
+            framebuffer::draw_text(fx + 24, body_y + 18, b"FILES", 0xD8E7FC)?;
+            draw_kind_status(fx + 24, body_y + 36, files_status)?;
+            draw_metric_u64(
+                fx + 24,
+                body_y + 70,
+                b"RECORDS ",
+                lifecycle_stats.record_count as u64,
+                0xC5D8EE,
+            )?;
+            draw_file_row(fx + 24, body_y + 88, files_cursor == 0, b"OPENOS-RELEASE")?;
+            draw_file_row(fx + 24, body_y + 106, files_cursor == 1, b"GESTURE-MAP")?;
+            draw_file_row(fx + 24, body_y + 124, files_cursor == 2, b"LAUNCHER-HISTORY")?;
+            framebuffer::fill_rounded_rect_alpha(fx + 20, fy + fh - 40, 116, 24, 8, 0x4281F2, 216)?;
+            framebuffer::draw_text(fx + 35, fy + fh - 33, b"NEXT FILE", 0xF4F9FF)?;
+            framebuffer::fill_rounded_rect_alpha(fx + 146, fy + fh - 40, 98, 24, 8, 0x2E4F7C, 212)?;
+            framebuffer::draw_text(fx + 162, fy + fh - 33, b"OPEN", 0xF4F9FF)?;
+        }
+        ActiveApp::None => {}
+    }
+
+    Ok(())
+}
+
+fn draw_file_row(x: u32, y: u32, selected: bool, label: &[u8]) -> Result<(), FramebufferError> {
+    if selected {
+        framebuffer::fill_rounded_rect_alpha(x.saturating_sub(6), y.saturating_sub(3), 180, 16, 5, 0x4A6FA6, 148)?;
+    }
+    framebuffer::draw_text(x, y, label, 0xE7F0FD)
+}
+
+fn app_window_frame(width: u32, height: u32) -> Rect {
+    let frame_w = clamp_u32(width.saturating_mul(46) / 100, 420, 640);
+    let frame_h = clamp_u32(height.saturating_mul(52) / 100, 240, 420);
+    let frame_x = width.saturating_sub(frame_w) / 2;
+    let frame_y = clamp_u32(height.saturating_mul(18) / 100, 70, 180);
+    target_frame(frame_x, frame_y, frame_w, frame_h)
+}
+
+fn active_app_title(app: ActiveApp) -> &'static [u8] {
+    match app {
+        ActiveApp::Shell => b"SHELL",
+        ActiveApp::Settings => b"SETTINGS",
+        ActiveApp::Files => b"FILES",
+        ActiveApp::None => b"",
+    }
+}
+
+fn draw_kind_status(x: u32, y: u32, status: lifecycle::KindStatus) -> Result<(), FramebufferError> {
+    if !status.present {
+        framebuffer::draw_text(x, y, b"LIFECYCLE: NOT LAUNCHED", 0xC7D5E8)?;
+        return Ok(());
+    }
+
+    let (label, color) = if status.foreground {
+        (b"LIFECYCLE: FOREGROUND" as &'static [u8], 0x9AD5A1)
+    } else {
+        match status.state {
+            AppState::Foreground => (b"LIFECYCLE: FOREGROUND" as &'static [u8], 0x9AD5A1),
+            AppState::Queued => (b"LIFECYCLE: QUEUED" as &'static [u8], 0xECD68B),
+            AppState::Exited => (b"LIFECYCLE: EXITED" as &'static [u8], 0xEAA2A8),
+        }
+    };
+    framebuffer::draw_text(x, y, label, color)?;
+    draw_metric_u64(x, y + 14, b"PID ", status.pid.0 as u64, 0xC5D8EE)?;
+    if status.state == AppState::Exited {
+        draw_metric_i64(x + 84, y + 14, b"EXIT ", status.exit_status, 0xEAA2A8)?;
+    }
+    Ok(())
+}
+
+fn draw_metric_u64(
+    x: u32,
+    y: u32,
+    prefix: &[u8],
+    value: u64,
+    color: u32,
+) -> Result<(), FramebufferError> {
+    let mut buf = [0u8; 48];
+    let mut len = copy_prefix(&mut buf, prefix);
+    len += encode_u64(value, &mut buf[len..]);
+    framebuffer::draw_text(x, y, &buf[..len], color)
+}
+
+fn draw_metric_i64(
+    x: u32,
+    y: u32,
+    prefix: &[u8],
+    value: i64,
+    color: u32,
+) -> Result<(), FramebufferError> {
+    let mut buf = [0u8; 48];
+    let mut len = copy_prefix(&mut buf, prefix);
+    len += encode_i64(value, &mut buf[len..]);
+    framebuffer::draw_text(x, y, &buf[..len], color)
+}
+
+fn copy_prefix(dst: &mut [u8], prefix: &[u8]) -> usize {
+    let count = min(dst.len(), prefix.len());
+    dst[..count].copy_from_slice(&prefix[..count]);
+    count
+}
+
+fn encode_u64(value: u64, out: &mut [u8]) -> usize {
+    if out.is_empty() {
+        return 0;
+    }
+    if value == 0 {
+        out[0] = b'0';
+        return 1;
+    }
+
+    let mut digits = [0u8; 20];
+    let mut n = value;
+    let mut idx = digits.len();
+    while n != 0 && idx > 0 {
+        idx -= 1;
+        digits[idx] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    let count = min(out.len(), digits.len() - idx);
+    out[..count].copy_from_slice(&digits[idx..idx + count]);
+    count
+}
+
+fn encode_i64(value: i64, out: &mut [u8]) -> usize {
+    if out.is_empty() {
+        return 0;
+    }
+
+    if value < 0 {
+        out[0] = b'-';
+        1 + encode_u64(value.unsigned_abs(), &mut out[1..])
+    } else {
+        encode_u64(value as u64, out)
+    }
+}
+
 fn build_home_targets(
     width: u32,
     height: u32,
@@ -1043,34 +1442,97 @@ fn build_home_targets(
 ) -> HomeTargets {
     let layout = compute_layout(width, height, scene.dock_height);
     let mut targets = HomeTargets::empty();
+    let (
+        active_app,
+        clock_dx,
+        clock_dy,
+        match_dx,
+        match_dy,
+        weather_dx,
+        weather_dy,
+        dock_order,
+    ) = unsafe {
+        (
+            UI_STATE.active_app,
+            UI_STATE.widget_clock_dx,
+            UI_STATE.widget_clock_dy,
+            UI_STATE.widget_match_dx,
+            UI_STATE.widget_match_dy,
+            UI_STATE.widget_weather_dx,
+            UI_STATE.widget_weather_dy,
+            UI_STATE.dock_order,
+        )
+    };
+
+    if active_app != ActiveApp::None {
+        let app_frame = app_window_frame(width, height);
+        let fx = app_frame.x.max(0) as u32;
+        let fy = app_frame.y.max(0) as u32;
+        let fw = app_frame.width;
+        let fh = app_frame.height;
+
+        push_target(
+            &mut targets,
+            TargetId::AppClose,
+            target_frame(fx + fw.saturating_sub(32), fy + 10, 20, 20),
+            TargetAction::CloseForegroundApp,
+        );
+        let primary_w = match active_app {
+            ActiveApp::Shell => 132,
+            ActiveApp::Settings => 152,
+            ActiveApp::Files => 116,
+            ActiveApp::None => 132,
+        };
+        push_target(
+            &mut targets,
+            TargetId::AppPrimary,
+            target_frame(fx + 20, fy + fh.saturating_sub(40), primary_w, 24),
+            TargetAction::ForegroundPrimary,
+        );
+        if active_app == ActiveApp::Files {
+            push_target(
+                &mut targets,
+                TargetId::AppSecondary,
+                target_frame(fx + 146, fy + fh.saturating_sub(40), 98, 24),
+                TargetAction::ForegroundSecondary,
+            );
+        }
+        return targets;
+    }
 
     let dx = motion.content_dx;
     let dy = motion.content_dy;
 
-    let clock_x = shift_u32(layout.left_margin, dx);
-    let clock_y = shift_u32(layout.top_y, dy);
+    let clock_x = shift_u32(layout.left_margin, dx + clock_dx);
+    let clock_y = shift_u32(layout.top_y, dy + clock_dy);
     push_target(
         &mut targets,
+        TargetId::ClockWidget,
         target_frame(clock_x, clock_y, layout.widget_size, layout.widget_size),
         TargetAction::ToggleClock,
     );
 
     let match_x = shift_u32(
         layout.left_margin + layout.widget_size + layout.widget_gap,
-        dx,
+        dx + match_dx,
     );
-    let match_y = shift_u32(layout.top_y, dy);
+    let match_y = shift_u32(layout.top_y, dy + match_dy);
     push_target(
         &mut targets,
+        TargetId::MatchWidget,
         target_frame(match_x, match_y, layout.widget_size, layout.widget_size),
         TargetAction::ToggleMatch,
     );
 
-    let weather_x = shift_u32(layout.left_margin, dx);
-    let weather_y = shift_u32(layout.top_y + layout.widget_size + layout.widget_gap, dy);
+    let weather_x = shift_u32(layout.left_margin, dx + weather_dx);
+    let weather_y = shift_u32(
+        layout.top_y + layout.widget_size + layout.widget_gap,
+        dy + weather_dy,
+    );
     let weather_w = layout.widget_size.saturating_mul(2) + layout.widget_gap;
     push_target(
         &mut targets,
+        TargetId::WeatherWidget,
         target_frame(weather_x, weather_y, weather_w, layout.weather_h),
         TargetAction::ToggleWeather,
     );
@@ -1107,6 +1569,7 @@ fn build_home_targets(
         );
         push_target(
             &mut targets,
+            TargetId::AppIcon(i),
             target_frame(x, top_y, layout.icon_size, layout.icon_size),
             TargetAction::Launch(top_actions[i]),
         );
@@ -1121,6 +1584,7 @@ fn build_home_targets(
         );
         push_target(
             &mut targets,
+            TargetId::AppIcon(4 + j),
             target_frame(x, second_y, layout.icon_size, layout.icon_size),
             TargetAction::Launch(second_actions[j]),
         );
@@ -1134,11 +1598,13 @@ fn build_home_targets(
     );
     push_target(
         &mut targets,
+        TargetId::AppIcon(8),
         target_frame(x0, third_y, layout.icon_size, layout.icon_size),
         TargetAction::Launch(GestureAction::LaunchFiles),
     );
     push_target(
         &mut targets,
+        TargetId::AppIcon(9),
         target_frame(x1, third_y, layout.icon_size, layout.icon_size),
         TargetAction::Launch(GestureAction::LaunchSettings),
     );
@@ -1176,11 +1642,13 @@ fn build_home_targets(
 
     let mut dock_x_cursor = dock_x + pad;
     let mut d = 0usize;
-    while d < dock_actions.len() {
+    while d < DOCK_ICON_COUNT {
+        let slot = (dock_order[d] as usize).min(dock_actions.len().saturating_sub(1));
         push_target(
             &mut targets,
+            TargetId::DockIcon(d),
             target_frame(dock_x_cursor, y, icon_size, icon_size),
-            TargetAction::Launch(dock_actions[d]),
+            TargetAction::Launch(dock_actions[slot]),
         );
         dock_x_cursor += icon_size + gap;
         if d == separator_after {
@@ -1192,11 +1660,11 @@ fn build_home_targets(
     targets
 }
 
-fn push_target(targets: &mut HomeTargets, frame: Rect, action: TargetAction) {
+fn push_target(targets: &mut HomeTargets, id: TargetId, frame: Rect, action: TargetAction) {
     if targets.len >= targets.items.len() {
         return;
     }
-    targets.items[targets.len] = HomeTarget { frame, action };
+    targets.items[targets.len] = HomeTarget { id, frame, action };
     targets.len += 1;
 }
 
@@ -1234,8 +1702,94 @@ unsafe fn apply_target_action(action: TargetAction) -> Option<GestureAction> {
             UI_STATE.weather_fahrenheit = !UI_STATE.weather_fahrenheit;
             None
         }
-        TargetAction::Launch(action) => Some(action),
+        TargetAction::CloseForegroundApp => {
+            UI_STATE.active_app = ActiveApp::None;
+            None
+        }
+        TargetAction::ForegroundPrimary => {
+            match UI_STATE.active_app {
+                ActiveApp::Shell => {
+                    UI_STATE.shell_network_flip = !UI_STATE.shell_network_flip;
+                }
+                ActiveApp::Settings => {
+                    UI_STATE.settings_airplane = !UI_STATE.settings_airplane;
+                }
+                ActiveApp::Files => {
+                    UI_STATE.files_cursor = (UI_STATE.files_cursor + 1) % 3;
+                }
+                ActiveApp::None => {}
+            }
+            None
+        }
+        TargetAction::ForegroundSecondary => {
+            if UI_STATE.active_app == ActiveApp::Files {
+                UI_STATE.files_cursor = 0;
+            }
+            None
+        }
+        TargetAction::Launch(action) => {
+            UI_STATE.active_app = active_app_for_launch(action);
+            Some(action)
+        }
     }
+}
+
+fn drag_target_for_id(id: TargetId) -> DragTarget {
+    match id {
+        TargetId::ClockWidget => DragTarget::ClockWidget,
+        TargetId::MatchWidget => DragTarget::MatchWidget,
+        TargetId::WeatherWidget => DragTarget::WeatherWidget,
+        TargetId::DockIcon(slot) => DragTarget::DockIcon(slot),
+        _ => DragTarget::None,
+    }
+}
+
+fn active_app_for_launch(action: GestureAction) -> ActiveApp {
+    match action {
+        GestureAction::LaunchShell => ActiveApp::Shell,
+        GestureAction::LaunchSettings => ActiveApp::Settings,
+        GestureAction::LaunchFiles => ActiveApp::Files,
+        _ => ActiveApp::None,
+    }
+}
+
+fn draw_hover_press_effects(targets: &HomeTargets) -> Result<(), FramebufferError> {
+    let (hover_idx, pressed_idx, pointer_visible) = unsafe {
+        (
+            UI_STATE.hover_index,
+            UI_STATE.pressed_index,
+            UI_STATE.pointer_visible,
+        )
+    };
+    if !pointer_visible || targets.len == 0 {
+        return Ok(());
+    }
+
+    if hover_idx < targets.len {
+        draw_target_effect(targets.items[hover_idx].frame, 0xFFFFFF, 42)?;
+    }
+    if pressed_idx < targets.len {
+        draw_target_effect(targets.items[pressed_idx].frame, 0x8BB6FF, 76)?;
+    }
+    Ok(())
+}
+
+fn draw_target_effect(frame: Rect, color: u32, alpha: u8) -> Result<(), FramebufferError> {
+    let x = frame.x.max(0) as u32;
+    let y = frame.y.max(0) as u32;
+    let w = frame.width;
+    let h = frame.height;
+    let radius = clamp_u32(min(w, h) / 4 + 3, 10, 22);
+
+    framebuffer::fill_rounded_rect_alpha(
+        x.saturating_sub(2),
+        y.saturating_sub(2),
+        w.saturating_add(4),
+        h.saturating_add(4),
+        radius,
+        color,
+        alpha,
+    )
 }
 
 fn draw_focus_indicator(targets: &HomeTargets) -> Result<(), FramebufferError> {
@@ -1860,6 +2414,10 @@ fn transition_spin() {
 }
 
 fn clamp_u32(value: u32, floor: u32, ceiling: u32) -> u32 {
+    min(ceiling, max(floor, value))
+}
+
+fn clamp_i32(value: i32, floor: i32, ceiling: i32) -> i32 {
     min(ceiling, max(floor, value))
 }
 

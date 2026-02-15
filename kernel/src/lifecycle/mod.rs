@@ -49,6 +49,15 @@ pub struct LifecycleStats {
 }
 
 #[derive(Clone, Copy)]
+pub struct KindStatus {
+    pub present: bool,
+    pub pid: TaskId,
+    pub state: AppState,
+    pub foreground: bool,
+    pub exit_status: i64,
+}
+
+#[derive(Clone, Copy)]
 struct AppRecord {
     in_use: bool,
     pid: TaskId,
@@ -248,6 +257,41 @@ pub fn stats() -> LifecycleStats {
             evict_total: EVICT_TOTAL,
             record_count,
             foreground_pid: FOREGROUND_PID,
+        }
+    }
+}
+
+pub fn status_for_kind(kind: AppKind) -> KindStatus {
+    unsafe {
+        let mut best: Option<AppRecord> = None;
+        let mut i = 0usize;
+        while i < MAX_APP_RECORDS {
+            let record = APP_RECORDS[i];
+            if record.in_use && record.kind == kind {
+                match best {
+                    Some(existing) if existing.seq >= record.seq => {}
+                    _ => best = Some(record),
+                }
+            }
+            i += 1;
+        }
+
+        if let Some(record) = best {
+            return KindStatus {
+                present: true,
+                pid: record.pid,
+                state: record.state,
+                foreground: FOREGROUND_PID == record.pid && record.state == AppState::Foreground,
+                exit_status: record.exit_status,
+            };
+        }
+
+        KindStatus {
+            present: false,
+            pid: INVALID_PID,
+            state: AppState::Queued,
+            foreground: false,
+            exit_status: 0,
         }
     }
 }

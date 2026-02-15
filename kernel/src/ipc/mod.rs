@@ -20,6 +20,11 @@ pub enum IpcError {
 }
 
 #[derive(Clone, Copy)]
+pub struct IpcStats {
+    pub queued_messages: usize,
+}
+
+#[derive(Clone, Copy)]
 struct IpcMessage {
     in_use: bool,
     header: UiMessageHeaderRaw,
@@ -103,6 +108,22 @@ pub fn recv(out: &mut [u8]) -> Result<(UiMessageHeaderRaw, usize), IpcError> {
     }
 
     Err(IpcError::QueueEmpty)
+}
+
+pub fn stats() -> IpcStats {
+    unsafe {
+        let mut queued = 0usize;
+        let mut i = 0usize;
+        while i < MAX_IPC_MESSAGES {
+            if IPC_QUEUE[i].in_use {
+                queued += 1;
+            }
+            i += 1;
+        }
+        IpcStats {
+            queued_messages: queued,
+        }
+    }
 }
 
 fn valid_header(header: UiMessageHeaderRaw) -> bool {
