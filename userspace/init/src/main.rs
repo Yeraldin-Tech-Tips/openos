@@ -99,9 +99,17 @@ fn idle_loop() {
 
 fn log_info(message: &str) {
     println!("{message}");
+    log_info_to_openos_serial(message);
+}
+
+#[cfg(feature = "openos-syscall-logging")]
+fn log_info_to_openos_serial(message: &str) {
     let _ = openos_syscall::fs_write(1, message.as_bytes());
     let _ = openos_syscall::fs_write(1, b"\n");
 }
+
+#[cfg(not(feature = "openos-syscall-logging"))]
+fn log_info_to_openos_serial(_message: &str) {}
 
 fn log_info_with_u64(prefix: &str, value: u64) {
     let mut message = String::from(prefix);

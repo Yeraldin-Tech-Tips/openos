@@ -3,6 +3,10 @@ name = "openos-init"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+openos-syscall-logging = []
+
 [dependencies]
 abi = { path = "../../shared/abi" }
 openos-syscall = { path = "../syscall" }
