@@ -67,3 +67,11 @@ pub fn ethernet_transmit(payload: &[u8]) -> Result<usize, DriverError> {
 pub fn ethernet_receive(out: &mut [u8]) -> Result<usize, DriverError> {
     ethernet_intel::receive(out)
 }
+
+pub fn hid_on_ps2_scancode(byte: u8) {
+    hid::on_ps2_scancode(byte);
+}
+
+pub fn hid_on_ps2_mouse_byte(byte: u8) {
+    hid::on_ps2_mouse_byte(byte);
+}

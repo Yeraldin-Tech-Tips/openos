@@ -42,7 +42,7 @@ This document tracks implementation status for scaffolded kernel drivers and def
 
 ### HID stack (`kernel/src/drivers/hid.rs`)
 
-- [ ] [DRV-HID-001] M1 PS/2 + USB controller detection
-- [ ] [DRV-HID-002] M2 resource wiring (I/O regions, IRQ routing)
-- [ ] [DRV-HID-003] M3 init sequence
-- [ ] [DRV-HID-004] M4 basic input event path
+- [x] [DRV-HID-001] M1 PS/2 + USB controller detection
+- [x] [DRV-HID-002] M2 resource wiring (I/O regions, IRQ routing)
+- [x] [DRV-HID-003] M3 init sequence
+- [x] [DRV-HID-004] M4 basic input event path
