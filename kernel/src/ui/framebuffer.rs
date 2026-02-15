@@ -29,23 +29,13 @@ pub fn has_active_framebuffer() -> bool {
 }
 
 pub fn fill_solid(color: u32) -> Result<(), FramebufferError> {
-    with_framebuffer_mut(|fb| {
-        let pixels = fb.size / fb.bytes_per_pixel as usize;
-        let ptr = fb.base as *mut u32;
-        for i in 0..pixels {
-            unsafe { ptr.add(i).write_volatile(color) };
-        }
-    })
+    with_framebuffer_mut(|fb| fill_rows_cols(fb, 0, fb.height as usize, |_| color))
 }
 
 pub fn fill_vertical_gradient(top_color: u32, bottom_color: u32) -> Result<(), FramebufferError> {
     with_framebuffer_mut(|fb| {
-        let width = fb.width as usize;
         let height = fb.height as usize;
-        let stride = fb.stride as usize;
-        let ptr = fb.base as *mut u32;
-
-        if height == 0 || width == 0 {
+        if height == 0 || fb.width == 0 {
             return;
         }
 
@@ -59,37 +49,24 @@ pub fn fill_vertical_gradient(top_color: u32, bottom_color: u32) -> Result<(), F
 
         let denom = if height > 1 { (height - 1) as u64 } else { 1 };
 
-        for y in 0..height {
+        fill_rows_cols(fb, 0, height, |y| {
             let y_u64 = y as u64;
             let inv = denom - y_u64;
             let r = ((tr * inv) + (br * y_u64)) / denom;
             let g = ((tg * inv) + (bg * y_u64)) / denom;
             let b = ((tb * inv) + (bb * y_u64)) / denom;
-            let color = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
-
-            let row_base = y * stride;
-            for x in 0..width {
-                unsafe { ptr.add(row_base + x).write_volatile(color) };
-            }
-        }
+            ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+        });
     })
 }
 
 pub fn fill_bottom_strip(color: u32, height: u32) -> Result<(), FramebufferError> {
     with_framebuffer_mut(|fb| {
-        let width = fb.width as usize;
         let fb_height = fb.height as usize;
-        let stride = fb.stride as usize;
-        let ptr = fb.base as *mut u32;
         let strip_height = core::cmp::min(height as usize, fb_height);
         let start_y = fb_height.saturating_sub(strip_height);
 
-        for y in start_y..fb_height {
-            let row_base = y * stride;
-            for x in 0..width {
-                unsafe { ptr.add(row_base + x).write_volatile(color) };
-            }
-        }
+        fill_rows_cols(fb, start_y, fb_height, |_| color);
     })
 }
 
@@ -503,11 +480,7 @@ impl FrameBufferConsole {
     }
 
     pub fn clear(&mut self, color: u32) {
-        let pixels = self.fb.size / self.fb.bytes_per_pixel as usize;
-        let ptr = self.fb.base as *mut u32;
-        for i in 0..pixels {
-            unsafe { ptr.add(i).write_volatile(color) };
-        }
+        fill_rows_cols(self.fb, 0, self.fb.height as usize, |_| color);
     }
 
     pub fn write_line(&mut self, text: &str) {
@@ -525,6 +498,28 @@ impl FrameBufferConsole {
 
     fn put_pixel(&self, x: u32, y: u32, color: u32) {
         put_pixel_fb(self.fb, x, y, color);
+    }
+}
+
+fn fill_rows_cols<F>(fb: FramebufferInfo, y_start: usize, y_end: usize, mut row_color: F)
+where
+    F: FnMut(usize) -> u32,
+{
+    let width = fb.width as usize;
+    let stride = fb.stride as usize;
+    let ptr = fb.base as *mut u32;
+    let y_end = core::cmp::min(y_end, fb.height as usize);
+
+    let mut y = y_start;
+    while y < y_end {
+        let color = row_color(y);
+        let mut x = 0usize;
+        while x < width {
+            let idx = y * stride + x;
+            unsafe { ptr.add(idx).write_volatile(color) };
+            x += 1;
+        }
+        y += 1;
     }
 }
 
