@@ -695,11 +695,33 @@ fn parent_can_reap_child(parent_pid: TaskId) -> bool {
 }
 
 fn allocate_pid() -> TaskId {
+    allocate_pid_from_counter(&NEXT_PID)
+}
+
+fn allocate_pid_from_counter(counter: &AtomicUsize) -> TaskId {
     loop {
-        let next = NEXT_PID.fetch_add(1, Ordering::AcqRel) as u32;
-        if next != 0 {
+        let next = counter.fetch_add(1, Ordering::AcqRel) as u32;
+        if next >= 2 {
             return TaskId(next);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allocate_pid_skips_reserved_ids_after_u32_wrap() {
+        let counter = AtomicUsize::new(u32::MAX as usize);
+
+        let max_pid = allocate_pid_from_counter(&counter);
+        assert_eq!(max_pid, TaskId(u32::MAX));
+
+        let wrapped_pid = allocate_pid_from_counter(&counter);
+        assert_eq!(wrapped_pid, TaskId(2));
+        assert_ne!(wrapped_pid, TaskId(0));
+        assert_ne!(wrapped_pid, TaskId(1));
     }
 }
 
