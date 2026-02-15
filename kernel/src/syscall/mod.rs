@@ -15,6 +15,7 @@ const USER_VADDR_MAX_EXCLUSIVE: u64 = 0x0000_8000_0000_0000;
 const SYSCALL_IO_MAX: usize = 4096;
 const VM_FLAG_WRITABLE: u64 = 1 << 0;
 const VM_FLAG_EXECUTABLE: u64 = 1 << 1;
+const EFAULT: i64 = -14;
 
 pub fn init() {
     INT80_TRAP_COUNT.store(0, Ordering::Release);
@@ -91,6 +92,61 @@ pub fn dispatch(num: u16, _a0: u64, _a1: u64, _a2: u64, _a3: u64) -> SyscallResu
     }
 }
 
+fn current_asid() -> Result<crate::mm::AddressSpaceId, SyscallResult> {
+    crate::sched::current_task_address_space().ok_or_else(|| SyscallResult::err(-3))
+}
+
+fn validate_user_read(ptr: u64, len: usize) -> Result<(), SyscallResult> {
+    if !user_range_valid(ptr, len) {
+        return Err(SyscallResult::err(EFAULT));
+    }
+    let asid = current_asid()?;
+    crate::mm::validate_user_read_range(asid, ptr, len).map_err(map_mm_access_error)
+}
+
+fn validate_user_write(ptr: u64, len: usize) -> Result<(), SyscallResult> {
+    if !user_range_valid(ptr, len) {
+        return Err(SyscallResult::err(EFAULT));
+    }
+    let asid = current_asid()?;
+    crate::mm::validate_user_write_range(asid, ptr, len).map_err(map_mm_access_error)
+}
+
+fn copy_from_user(dst: &mut [u8], user_ptr: u64) -> Result<(), SyscallResult> {
+    validate_user_read(user_ptr, dst.len())?;
+    if !dst.is_empty() {
+        unsafe {
+            core::ptr::copy_nonoverlapping(user_ptr as *const u8, dst.as_mut_ptr(), dst.len());
+        }
+    }
+    Ok(())
+}
+
+fn copy_to_user(user_ptr: u64, src: &[u8]) -> Result<(), SyscallResult> {
+    validate_user_write(user_ptr, src.len())?;
+    if !src.is_empty() {
+        unsafe {
+            core::ptr::copy_nonoverlapping(src.as_ptr(), user_ptr as *mut u8, src.len());
+        }
+    }
+    Ok(())
+}
+
+fn map_mm_access_error(err: crate::mm::UserMapError) -> SyscallResult {
+    match err {
+        crate::mm::UserMapError::AddressOutOfRange => SyscallResult::err(EFAULT),
+        crate::mm::UserMapError::InvalidAddressSpace
+        | crate::mm::UserMapError::AddressSpaceTableFull => SyscallResult::err(-3),
+        crate::mm::UserMapError::InvalidImage
+        | crate::mm::UserMapError::InvalidEntry
+        | crate::mm::UserMapError::InvalidRange
+        | crate::mm::UserMapError::AlreadyMapped => SyscallResult::err(-22),
+        crate::mm::UserMapError::ResourceTrackingOverflow
+        | crate::mm::UserMapError::PageTablePoolExhausted
+        | crate::mm::UserMapError::UserFramePoolExhausted => SyscallResult::err(-12),
+    }
+}
+
 fn proc_spawn(spawn_arg: u64) -> SyscallResult {
     if spawn_arg == 0 {
         return match crate::sched::spawn_from_current() {
@@ -158,11 +214,8 @@ fn proc_wait(status_out_ptr: u64) -> SyscallResult {
     };
 
     if status_out_ptr != 0 {
-        if !user_range_valid(status_out_ptr, size_of::<i64>()) {
-            return SyscallResult::err(-14);
-        }
-        unsafe {
-            (status_out_ptr as *mut i64).write(exit_status);
+        if let Err(err) = copy_to_user(status_out_ptr, &exit_status.to_ne_bytes()) {
+            return err;
         }
     }
 
@@ -182,12 +235,12 @@ fn fs_write(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
         return SyscallResult::err(-22);
     }
 
-    if !user_range_valid(buf_ptr, len) {
-        return SyscallResult::err(-14);
+    let mut bytes = [0u8; SYSCALL_IO_MAX];
+    if let Err(err) = copy_from_user(&mut bytes[..len], buf_ptr) {
+        return err;
     }
 
-    let bytes = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
-    crate::arch::x86_64::serial::write_bytes(bytes);
+    crate::arch::x86_64::serial::write_bytes(&bytes[..len]);
     SyscallResult::ok(len as u64)
 }
 
@@ -223,9 +276,9 @@ fn vm_map(addr_hint: u64, len: u64, flags: u64) -> SyscallResult {
         Err(
             crate::mm::UserMapError::InvalidImage
             | crate::mm::UserMapError::InvalidEntry
-            | crate::mm::UserMapError::InvalidRange
-            | crate::mm::UserMapError::AddressOutOfRange,
+            | crate::mm::UserMapError::InvalidRange,
         ) => SyscallResult::err(-22),
+        Err(crate::mm::UserMapError::AddressOutOfRange) => SyscallResult::err(EFAULT),
         Err(crate::mm::UserMapError::AlreadyMapped) => SyscallResult::err(-17),
         Err(
             crate::mm::UserMapError::InvalidAddressSpace
@@ -256,9 +309,9 @@ fn vm_unmap(addr: u64, len: u64) -> SyscallResult {
             crate::mm::UserMapError::InvalidImage
             | crate::mm::UserMapError::InvalidEntry
             | crate::mm::UserMapError::InvalidRange
-            | crate::mm::UserMapError::AddressOutOfRange
             | crate::mm::UserMapError::AlreadyMapped,
         ) => SyscallResult::err(-22),
+        Err(crate::mm::UserMapError::AddressOutOfRange) => SyscallResult::err(EFAULT),
         Err(
             crate::mm::UserMapError::InvalidAddressSpace
             | crate::mm::UserMapError::AddressSpaceTableFull,
@@ -276,8 +329,9 @@ fn fs_open(path_ptr: u64, path_len: u64, flags: u64) -> SyscallResult {
     if path_len == 0 || path_len > fs::MAX_PATH_BYTES {
         return SyscallResult::err(-22);
     }
-    if !user_range_valid(path_ptr, path_len) {
-        return SyscallResult::err(-14);
+    let mut path = [0u8; fs::MAX_PATH_BYTES];
+    if let Err(err) = copy_from_user(&mut path[..path_len], path_ptr) {
+        return err;
     }
 
     let pid = match crate::sched::current_task_id() {
@@ -285,8 +339,7 @@ fn fs_open(path_ptr: u64, path_len: u64, flags: u64) -> SyscallResult {
         None => return SyscallResult::err(-3),
     };
 
-    let path = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, path_len) };
-    match fs::open(pid, path, flags) {
+    match fs::open(pid, &path[..path_len], flags) {
         Ok(fd) => SyscallResult::ok(fd),
         Err(fs::FsError::InvalidPath) => SyscallResult::err(-22),
         Err(fs::FsError::NotFound) => SyscallResult::err(-2),
@@ -304,8 +357,8 @@ fn fs_read(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
     if len > SYSCALL_IO_MAX {
         return SyscallResult::err(-22);
     }
-    if !user_range_valid(buf_ptr, len) {
-        return SyscallResult::err(-14);
+    if let Err(err) = validate_user_write(buf_ptr, len) {
+        return err;
     }
 
     let pid = match crate::sched::current_task_id() {
@@ -313,9 +366,14 @@ fn fs_read(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
         None => return SyscallResult::err(-3),
     };
 
-    let out = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-    match fs::read(pid, fd, out) {
-        Ok(read) => SyscallResult::ok(read as u64),
+    let mut out = [0u8; SYSCALL_IO_MAX];
+    match fs::read(pid, fd, &mut out[..len]) {
+        Ok(read) => {
+            if let Err(err) = copy_to_user(buf_ptr, &out[..read]) {
+                return err;
+            }
+            SyscallResult::ok(read as u64)
+        }
         Err(fs::FsError::InvalidPath) => SyscallResult::err(-22),
         Err(fs::FsError::NotFound) => SyscallResult::err(-2),
         Err(fs::FsError::TableFull) => SyscallResult::err(-24),
@@ -362,8 +420,9 @@ fn net_connect(fd: u64, addr_ptr: u64, addr_len: u64) -> SyscallResult {
     if addr_len == 0 || addr_len > 64 {
         return SyscallResult::err(-22);
     }
-    if !user_range_valid(addr_ptr, addr_len) {
-        return SyscallResult::err(-14);
+    let mut addr = [0u8; 64];
+    if let Err(err) = copy_from_user(&mut addr[..addr_len], addr_ptr) {
+        return err;
     }
 
     let pid = match crate::sched::current_task_id() {
@@ -371,8 +430,7 @@ fn net_connect(fd: u64, addr_ptr: u64, addr_len: u64) -> SyscallResult {
         None => return SyscallResult::err(-3),
     };
 
-    let addr = unsafe { core::slice::from_raw_parts(addr_ptr as *const u8, addr_len) };
-    match crate::net::connect(pid, fd, addr) {
+    match crate::net::connect(pid, fd, &addr[..addr_len]) {
         Ok(()) => SyscallResult::ok(0),
         Err(crate::net::NetError::InvalidArg) => SyscallResult::err(-22),
         Err(crate::net::NetError::BadFd) => SyscallResult::err(-9),
@@ -391,8 +449,9 @@ fn net_send(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
     if len > SYSCALL_IO_MAX {
         return SyscallResult::err(-22);
     }
-    if !user_range_valid(buf_ptr, len) {
-        return SyscallResult::err(-14);
+    let mut payload = [0u8; SYSCALL_IO_MAX];
+    if let Err(err) = copy_from_user(&mut payload[..len], buf_ptr) {
+        return err;
     }
 
     let pid = match crate::sched::current_task_id() {
@@ -400,8 +459,7 @@ fn net_send(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
         None => return SyscallResult::err(-3),
     };
 
-    let payload = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len) };
-    match crate::net::send(pid, fd, payload) {
+    match crate::net::send(pid, fd, &payload[..len]) {
         Ok(sent) => SyscallResult::ok(sent as u64),
         Err(crate::net::NetError::InvalidArg) => SyscallResult::err(-22),
         Err(crate::net::NetError::BadFd) => SyscallResult::err(-9),
@@ -420,8 +478,8 @@ fn net_recv(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
     if len > SYSCALL_IO_MAX {
         return SyscallResult::err(-22);
     }
-    if !user_range_valid(buf_ptr, len) {
-        return SyscallResult::err(-14);
+    if let Err(err) = validate_user_write(buf_ptr, len) {
+        return err;
     }
 
     let pid = match crate::sched::current_task_id() {
@@ -429,9 +487,14 @@ fn net_recv(fd: u64, buf_ptr: u64, len: u64) -> SyscallResult {
         None => return SyscallResult::err(-3),
     };
 
-    let out = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, len) };
-    match crate::net::recv(pid, fd, out) {
-        Ok(read) => SyscallResult::ok(read as u64),
+    let mut out = [0u8; SYSCALL_IO_MAX];
+    match crate::net::recv(pid, fd, &mut out[..len]) {
+        Ok(read) => {
+            if let Err(err) = copy_to_user(buf_ptr, &out[..read]) {
+                return err;
+            }
+            SyscallResult::ok(read as u64)
+        }
         Err(crate::net::NetError::InvalidArg) => SyscallResult::err(-22),
         Err(crate::net::NetError::BadFd) => SyscallResult::err(-9),
         Err(crate::net::NetError::NotConnected) => SyscallResult::err(-107),
@@ -447,22 +510,20 @@ fn ipc_send(header_ptr: u64, payload_ptr: u64, payload_len: u64) -> SyscallResul
         return SyscallResult::err(-22);
     }
 
-    if !user_range_valid(header_ptr, size_of::<UiMessageHeaderRaw>()) {
-        return SyscallResult::err(-14);
+    let mut header_bytes = [0u8; size_of::<UiMessageHeaderRaw>()];
+    if let Err(err) = copy_from_user(&mut header_bytes, header_ptr) {
+        return err;
+    }
+    let header = unsafe { (header_bytes.as_ptr() as *const UiMessageHeaderRaw).read_unaligned() };
+
+    let mut payload = [0u8; ipc::MAX_IPC_PAYLOAD];
+    if payload_len != 0 {
+        if let Err(err) = copy_from_user(&mut payload[..payload_len], payload_ptr) {
+            return err;
+        }
     }
 
-    if payload_len != 0 && !user_range_valid(payload_ptr, payload_len) {
-        return SyscallResult::err(-14);
-    }
-
-    let header = unsafe { (header_ptr as *const UiMessageHeaderRaw).read_unaligned() };
-    let payload = if payload_len == 0 {
-        &[]
-    } else {
-        unsafe { core::slice::from_raw_parts(payload_ptr as *const u8, payload_len) }
-    };
-
-    match ipc::send(header, payload) {
+    match ipc::send(header, &payload[..payload_len]) {
         Ok(()) => SyscallResult::ok(payload_len as u64),
         Err(ipc::IpcError::InvalidMessage) => SyscallResult::err(-22),
         Err(ipc::IpcError::QueueFull) => SyscallResult::err(-11),
@@ -471,13 +532,18 @@ fn ipc_send(header_ptr: u64, payload_ptr: u64, payload_len: u64) -> SyscallResul
 }
 
 fn ipc_recv(header_out_ptr: u64, payload_out_ptr: u64, payload_capacity: u64) -> SyscallResult {
-    if header_out_ptr == 0 || !user_range_valid(header_out_ptr, size_of::<UiMessageHeaderRaw>()) {
-        return SyscallResult::err(-14);
+    if header_out_ptr == 0 {
+        return SyscallResult::err(EFAULT);
+    }
+    if let Err(err) = validate_user_write(header_out_ptr, size_of::<UiMessageHeaderRaw>()) {
+        return err;
     }
 
     let payload_capacity = payload_capacity as usize;
-    if payload_capacity != 0 && !user_range_valid(payload_out_ptr, payload_capacity) {
-        return SyscallResult::err(-14);
+    if payload_capacity != 0 {
+        if let Err(err) = validate_user_write(payload_out_ptr, payload_capacity) {
+            return err;
+        }
     }
 
     let mut payload = [0u8; ipc::MAX_IPC_PAYLOAD];
@@ -491,10 +557,18 @@ fn ipc_recv(header_out_ptr: u64, payload_out_ptr: u64, payload_capacity: u64) ->
         }
     };
 
-    unsafe {
-        (header_out_ptr as *mut UiMessageHeaderRaw).write_unaligned(header);
-        if len != 0 {
-            core::ptr::copy_nonoverlapping(payload.as_ptr(), payload_out_ptr as *mut u8, len);
+    let header_bytes = unsafe {
+        core::slice::from_raw_parts(
+            (&header as *const UiMessageHeaderRaw).cast::<u8>(),
+            size_of::<UiMessageHeaderRaw>(),
+        )
+    };
+    if let Err(err) = copy_to_user(header_out_ptr, header_bytes) {
+        return err;
+    }
+    if len != 0 {
+        if let Err(err) = copy_to_user(payload_out_ptr, &payload[..len]) {
+            return err;
         }
     }
 

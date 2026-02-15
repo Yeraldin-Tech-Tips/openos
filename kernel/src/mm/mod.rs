@@ -308,6 +308,65 @@ pub fn unmap_user_range(
     Ok(unmapped_pages)
 }
 
+pub fn validate_user_read_range(
+    asid: AddressSpaceId,
+    virt_addr: u64,
+    len: usize,
+) -> Result<(), UserMapError> {
+    validate_user_access_range(asid, virt_addr, len, false)
+}
+
+pub fn validate_user_write_range(
+    asid: AddressSpaceId,
+    virt_addr: u64,
+    len: usize,
+) -> Result<(), UserMapError> {
+    validate_user_access_range(asid, virt_addr, len, true)
+}
+
+fn validate_user_access_range(
+    asid: AddressSpaceId,
+    virt_addr: u64,
+    len: usize,
+    require_writable: bool,
+) -> Result<(), UserMapError> {
+    if len == 0 {
+        return Ok(());
+    }
+
+    let end = virt_addr
+        .checked_add(len as u64)
+        .ok_or(UserMapError::AddressOutOfRange)?;
+    if end <= virt_addr || !is_lower_canonical(virt_addr) || !is_lower_canonical(end - 1) {
+        return Err(UserMapError::AddressOutOfRange);
+    }
+
+    let space_ptr = unsafe { address_space_ptr(asid).ok_or(UserMapError::InvalidAddressSpace)? };
+    let root = unsafe { core::ptr::addr_of_mut!((*space_ptr).pml4) };
+
+    let mut page = align_down(virt_addr);
+    let end_page = align_up(end);
+    while page < end_page {
+        let entry = unsafe {
+            let Some(pte_ptr) = find_leaf_pte_mut(root, page) else {
+                return Err(UserMapError::AddressOutOfRange);
+            };
+            *pte_ptr
+        };
+
+        if (entry & PTE_PRESENT) == 0 || (entry & PTE_USER) == 0 {
+            return Err(UserMapError::AddressOutOfRange);
+        }
+        if require_writable && (entry & PTE_WRITABLE) == 0 {
+            return Err(UserMapError::AddressOutOfRange);
+        }
+
+        page += PAGE_SIZE as u64;
+    }
+
+    Ok(())
+}
+
 unsafe fn alloc_address_space() -> Result<(AddressSpaceId, *mut UserAddressSpace), UserMapError> {
     let mut i = 0usize;
     while i < MAX_USER_ADDRESS_SPACES {
@@ -746,4 +805,85 @@ const fn is_lower_canonical(addr: u64) -> bool {
 
 unsafe fn flush_page(addr: u64) {
     asm!("invlpg [{}]", in(reg) addr, options(nostack, preserves_flags));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reset_test_state() {
+        reset_allocator_state();
+        reset_address_space_table();
+    }
+
+    fn alloc_space() -> (AddressSpaceId, *mut UserAddressSpace) {
+        unsafe { alloc_address_space().expect("address space allocation should succeed") }
+    }
+
+    fn make_user_leaf_entry(writable: bool) -> u64 {
+        let mut flags = PTE_PRESENT | PTE_USER;
+        if writable {
+            flags |= PTE_WRITABLE;
+        }
+        flags
+    }
+
+    unsafe fn install_leaf_entry(
+        root: *mut PageTable,
+        virt_addr: u64,
+        entry: u64,
+        space: *mut UserAddressSpace,
+    ) {
+        let pml4_index = table_index(virt_addr, 39);
+        let pdpt_index = table_index(virt_addr, 30);
+        let pd_index = table_index(virt_addr, 21);
+        let pt_index = table_index(virt_addr, 12);
+
+        let pdpt = get_or_create_next_table(root, pml4_index, true, space).unwrap();
+        let pd = get_or_create_next_table(pdpt, pdpt_index, true, space).unwrap();
+        let pt = get_or_create_next_table(pd, pd_index, true, space).unwrap();
+        (*pt).entries[pt_index] = entry;
+    }
+
+    #[test]
+    fn validate_user_range_rejects_unmapped_page() {
+        reset_test_state();
+        let (asid, _space) = alloc_space();
+
+        assert_eq!(
+            validate_user_read_range(asid, 0x400000, PAGE_SIZE),
+            Err(UserMapError::AddressOutOfRange)
+        );
+    }
+
+    #[test]
+    fn validate_user_write_rejects_read_only_page() {
+        reset_test_state();
+        let (asid, space) = alloc_space();
+        let root = unsafe { core::ptr::addr_of_mut!((*space).pml4) };
+        unsafe { install_leaf_entry(root, 0x400000, make_user_leaf_entry(false), space) };
+
+        assert!(validate_user_read_range(asid, 0x400000, 8).is_ok());
+        assert_eq!(
+            validate_user_write_range(asid, 0x400000, 8),
+            Err(UserMapError::AddressOutOfRange)
+        );
+    }
+
+    #[test]
+    fn validate_user_range_checks_all_pages_in_span() {
+        reset_test_state();
+        let (asid, space) = alloc_space();
+        let root = unsafe { core::ptr::addr_of_mut!((*space).pml4) };
+        unsafe {
+            install_leaf_entry(root, 0x400000, make_user_leaf_entry(true), space);
+            install_leaf_entry(root, 0x401000, make_user_leaf_entry(true), space);
+        }
+
+        assert!(validate_user_write_range(asid, 0x400ff0, 32).is_ok());
+        assert_eq!(
+            validate_user_write_range(asid, 0x401ff0, 32),
+            Err(UserMapError::AddressOutOfRange)
+        );
+    }
 }
