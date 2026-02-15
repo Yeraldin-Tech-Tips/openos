@@ -18,7 +18,7 @@ impl IrqState {
                 "pop {}",
                 "cli",
                 out(reg) rflags,
-                options(nomem, preserves_flags)
+                options()
             );
         }
         Self {
@@ -29,7 +29,7 @@ impl IrqState {
     fn restore(self) {
         if self.were_enabled {
             unsafe {
-                core::arch::asm!("sti", options(nomem, nostack, preserves_flags));
+                core::arch::asm!("sti", options(nostack));
             }
         }
     }
