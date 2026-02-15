@@ -63,3 +63,7 @@ pub fn init() {
 pub fn ethernet_transmit(payload: &[u8]) -> Result<usize, DriverError> {
     ethernet_intel::transmit(payload)
 }
+
+pub fn ethernet_receive(out: &mut [u8]) -> Result<usize, DriverError> {
+    ethernet_intel::receive(out)
+}

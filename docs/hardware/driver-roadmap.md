@@ -22,10 +22,16 @@ This document tracks implementation status for scaffolded kernel drivers and def
 
 ### Intel Ethernet (`kernel/src/drivers/ethernet_intel.rs`)
 
-- [ ] [DRV-ETH-001] M1 detection (PCI ID scan)
-- [ ] [DRV-ETH-002] M2 BAR/resource mapping
-- [ ] [DRV-ETH-003] M3 init sequence
-- [ ] [DRV-ETH-004] M4 basic send/recv path
+- [x] [DRV-ETH-001] M1 detection (PCI ID scan)
+- [x] [DRV-ETH-002] M2 BAR/resource mapping
+- [x] [DRV-ETH-003] M3 init sequence
+- [x] [DRV-ETH-004] M4 basic send/recv path
+
+**Hardware assumptions (current implementation):**
+- The NIC appears on conventional x86 PCI config space access ports (`0xCF8/0xCFC`).
+- Supported Intel IDs are currently limited to a baseline set (`0x100E`, `0x10D3`, `0x153A`, `0x15B8`).
+- BAR0 must be MMIO (32-bit or 64-bit) and identity-mapped by the current paging setup.
+- Queue/ring setup is a deterministic minimal scaffold, and the RX path is looped from TX for now.
 
 ### Intel Wi-Fi (`kernel/src/drivers/wifi_intel.rs`)
 
