@@ -13,7 +13,7 @@ use core::ptr::NonNull;
 use uefi::boot::{self, AllocateType, MemoryType};
 use uefi::mem::memory_map::MemoryMap as _;
 use uefi::prelude::*;
-use uefi::proto::console::gop::GraphicsOutput;
+use uefi::proto::console::gop::{GraphicsOutput, PixelFormat};
 use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType, RegularFile};
 use uefi::CStr16;
 
@@ -155,9 +155,21 @@ fn capture_framebuffer() -> Option<FramebufferInfo> {
     let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(handle).ok()?;
 
     let mode_info = gop.current_mode_info();
+    // We only advertise framebuffer access for GOP modes with byte-addressable 32bpp pixels that
+    // match the current kernel write path. BootInfo v2 has no pixel-order field, so accepting
+    // PixelFormat::Rgb would cause red/blue channel swapping when the kernel writes 0xRRGGBB into
+    // u32 pixels. Gate this to BGR until the ABI carries explicit channel order metadata.
+    // We intentionally reject Bitmask/BltOnly (and any future formats) because their layout is
+    // not covered by the BootInfo v2 framebuffer contract.
+    match mode_info.pixel_format() {
+        PixelFormat::Bgr => {}
+        _ => return None,
+    }
+
     let (width, height) = mode_info.resolution();
     let width = u32::try_from(width).ok()?;
     let height = u32::try_from(height).ok()?;
+    let stride = u32::try_from(mode_info.stride()).ok()?;
     let mut fb = gop.frame_buffer();
 
     Some(FramebufferInfo {
@@ -165,7 +177,7 @@ fn capture_framebuffer() -> Option<FramebufferInfo> {
         size: fb.size(),
         width,
         height,
-        stride: mode_info.stride() as u32,
+        stride,
         bytes_per_pixel: 4,
     })
 }
