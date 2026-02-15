@@ -437,7 +437,9 @@ pub fn move_pointer(dx: i32, dy: i32) -> Result<(), PresentError> {
                     UI_STATE.drag_moved |= dx != 0 || dy != 0;
                 }
                 DragTarget::DockIcon(from_slot) => {
-                    if let Some(hit) = hit_test_targets(&targets, UI_STATE.pointer_x, UI_STATE.pointer_y) {
+                    if let Some(hit) =
+                        hit_test_targets(&targets, UI_STATE.pointer_x, UI_STATE.pointer_y)
+                    {
                         if let TargetId::DockIcon(to_slot) = targets.items[hit].id {
                             if from_slot != to_slot {
                                 let from_value = UI_STATE.dock_order[from_slot];
@@ -462,13 +464,13 @@ pub fn move_pointer(dx: i32, dy: i32) -> Result<(), PresentError> {
         UI_STATE.widget_match_dy = clamp_i32(UI_STATE.widget_match_dy, -max_dy, max_dy);
         UI_STATE.widget_weather_dx = clamp_i32(UI_STATE.widget_weather_dx, -max_dx, max_dx);
         UI_STATE.widget_weather_dy = clamp_i32(UI_STATE.widget_weather_dy, -max_dy, max_dy);
-
     }
 
     let hover_targets = build_home_targets(width, height, scene, MotionState::default());
     unsafe {
-        UI_STATE.hover_index = hit_test_targets(&hover_targets, UI_STATE.pointer_x, UI_STATE.pointer_y)
-            .unwrap_or(INVALID_TARGET_INDEX);
+        UI_STATE.hover_index =
+            hit_test_targets(&hover_targets, UI_STATE.pointer_x, UI_STATE.pointer_y)
+                .unwrap_or(INVALID_TARGET_INDEX);
     }
 
     render_scene(scene, MotionState::default())
@@ -1308,7 +1310,12 @@ fn draw_foreground_app(width: u32, height: u32) -> Result<(), FramebufferError> 
             )?;
             draw_file_row(fx + 24, body_y + 88, files_cursor == 0, b"OPENOS-RELEASE")?;
             draw_file_row(fx + 24, body_y + 106, files_cursor == 1, b"GESTURE-MAP")?;
-            draw_file_row(fx + 24, body_y + 124, files_cursor == 2, b"LAUNCHER-HISTORY")?;
+            draw_file_row(
+                fx + 24,
+                body_y + 124,
+                files_cursor == 2,
+                b"LAUNCHER-HISTORY",
+            )?;
             framebuffer::fill_rounded_rect_alpha(fx + 20, fy + fh - 40, 116, 24, 8, 0x4281F2, 216)?;
             framebuffer::draw_text(fx + 35, fy + fh - 33, b"NEXT FILE", 0xF4F9FF)?;
             framebuffer::fill_rounded_rect_alpha(fx + 146, fy + fh - 40, 98, 24, 8, 0x2E4F7C, 212)?;
@@ -1322,7 +1329,15 @@ fn draw_foreground_app(width: u32, height: u32) -> Result<(), FramebufferError> 
 
 fn draw_file_row(x: u32, y: u32, selected: bool, label: &[u8]) -> Result<(), FramebufferError> {
     if selected {
-        framebuffer::fill_rounded_rect_alpha(x.saturating_sub(6), y.saturating_sub(3), 180, 16, 5, 0x4A6FA6, 148)?;
+        framebuffer::fill_rounded_rect_alpha(
+            x.saturating_sub(6),
+            y.saturating_sub(3),
+            180,
+            16,
+            5,
+            0x4A6FA6,
+            148,
+        )?;
     }
     framebuffer::draw_text(x, y, label, 0xE7F0FD)
 }
@@ -1442,16 +1457,7 @@ fn build_home_targets(
 ) -> HomeTargets {
     let layout = compute_layout(width, height, scene.dock_height);
     let mut targets = HomeTargets::empty();
-    let (
-        active_app,
-        clock_dx,
-        clock_dy,
-        match_dx,
-        match_dy,
-        weather_dx,
-        weather_dy,
-        dock_order,
-    ) = unsafe {
+    let (active_app, clock_dx, clock_dy, match_dx, match_dy, weather_dx, weather_dy, dock_order) = unsafe {
         (
             UI_STATE.active_app,
             UI_STATE.widget_clock_dx,
