@@ -145,12 +145,12 @@ pub extern "C" fn openos_interrupt_dispatch(frame: &mut InterruptFrame) {
         }
         KEYBOARD_VECTOR => {
             let scancode = unsafe { inb(PS2_DATA_PORT) };
-            crate::input::on_ps2_scancode(scancode);
+            crate::drivers::hid_on_ps2_scancode(scancode);
             acknowledge_irq(KEYBOARD_VECTOR);
         }
         MOUSE_VECTOR => {
             let byte = unsafe { inb(PS2_DATA_PORT) };
-            crate::input::on_ps2_mouse_byte(byte);
+            crate::drivers::hid_on_ps2_mouse_byte(byte);
             acknowledge_irq(MOUSE_VECTOR);
         }
         UD_VECTOR | GP_VECTOR | PF_VECTOR => handle_fault(frame),
