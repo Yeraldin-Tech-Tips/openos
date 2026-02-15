@@ -155,14 +155,14 @@ fn capture_framebuffer() -> Option<FramebufferInfo> {
     let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(handle).ok()?;
 
     let mode_info = gop.current_mode_info();
-    // We only advertise framebuffer access for GOP modes with byte-addressable 32bpp pixel
-    // formats. These are the UEFI-defined packed formats the kernel can consume directly:
-    //   * PixelFormat::Rgb  => R8G8B8X8 in memory
-    //   * PixelFormat::Bgr  => B8G8R8X8 in memory
+    // We only advertise framebuffer access for GOP modes with byte-addressable 32bpp pixels that
+    // match the current kernel write path. BootInfo v2 has no pixel-order field, so accepting
+    // PixelFormat::Rgb would cause red/blue channel swapping when the kernel writes 0xRRGGBB into
+    // u32 pixels. Gate this to BGR until the ABI carries explicit channel order metadata.
     // We intentionally reject Bitmask/BltOnly (and any future formats) because their layout is
     // not covered by the BootInfo v2 framebuffer contract.
     match mode_info.pixel_format() {
-        PixelFormat::Rgb | PixelFormat::Bgr => {}
+        PixelFormat::Bgr => {}
         _ => return None,
     }
 
