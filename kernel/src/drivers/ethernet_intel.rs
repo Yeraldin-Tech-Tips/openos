@@ -9,12 +9,14 @@ impl KernelDriver for IntelEthernet {
     }
 
     fn probe(&self) -> bool {
-        // TODO: Replace with PCI scan for Intel Ethernet IDs.
+        // TODO(DRV-ETH-001): Replace with PCI scan for Intel Ethernet IDs.
+        // Tracking: docs/hardware/driver-roadmap.md#intel-ethernet-kernelsrcdriversethernet_intelrs
         false
     }
 
     fn init(&self) -> Result<(), DriverError> {
-        // TODO: e1000/e1000e-style init path once probe and BAR mapping exist.
+        // TODO(DRV-ETH-003): Implement e1000/e1000e-style init once probe + BAR mapping exist.
+        // Tracking: docs/hardware/driver-roadmap.md#intel-ethernet-kernelsrcdriversethernet_intelrs
         Err(DriverError::NotReady)
     }
 }

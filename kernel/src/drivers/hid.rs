@@ -8,12 +8,14 @@ impl KernelDriver for HidStack {
     }
 
     fn probe(&self) -> bool {
-        // TODO: Replace with USB/PS2 controller presence checks.
+        // TODO(DRV-HID-001): Replace with USB/PS2 controller presence checks.
+        // Tracking: docs/hardware/driver-roadmap.md#hid-stack-kernelsrcdrivershidrs
         false
     }
 
     fn init(&self) -> Result<(), DriverError> {
-        // TODO: Implement USB HID + PS/2 compatibility layer.
+        // TODO(DRV-HID-003): Implement USB HID + PS/2 compatibility init path.
+        // Tracking: docs/hardware/driver-roadmap.md#hid-stack-kernelsrcdrivershidrs
         Err(DriverError::NotReady)
     }
 }

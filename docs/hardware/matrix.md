@@ -30,7 +30,11 @@
 
 ## Kernel Driver Maturity (Current Tree)
 
-- `kernel/src/drivers/ethernet_intel.rs`: probe currently returns `false`; `init()` returns `DriverError::NotReady`
-- `kernel/src/drivers/wifi_intel.rs`: probe currently returns `false`; `init()` returns `DriverError::Unsupported`
-- `kernel/src/drivers/hid.rs`: probe currently returns `false`; `init()` returns `DriverError::NotReady`
-- `kernel/src/drivers/mod.rs`: driver manager logs per-driver probe and init success/failure to serial for bring-up visibility
+| Driver module | Probe support | Init support | Runtime operations |
+| --- | --- | --- | --- |
+| `kernel/src/drivers/ethernet_intel.rs` | Scaffold only (`probe()` always returns `false`) | Scaffold only (`init()` returns `DriverError::NotReady`) | Partial scaffold: `transmit()` serial-logs payload bytes; no NIC hardware path yet |
+| `kernel/src/drivers/wifi_intel.rs` | Scaffold only (`probe()` always returns `false`) | Scaffold only (`init()` returns `DriverError::Unsupported`) | Not implemented (no runtime tx/rx control path yet) |
+| `kernel/src/drivers/hid.rs` | Scaffold only (`probe()` always returns `false`) | Scaffold only (`init()` returns `DriverError::NotReady`) | Not implemented (no runtime input controller path yet) |
+| `kernel/src/drivers/mod.rs` | Implemented manager iteration over in-tree drivers | Implemented probe/init orchestration with structured error logging | Exposes `ethernet_transmit()` handoff for net syscall path validation |
+
+See `docs/hardware/driver-roadmap.md` for linked checklist tracking and minimum viable milestones.
