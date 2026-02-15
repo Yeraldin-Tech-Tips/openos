@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn syscall_groups_do_not_overlap() {
-        let all_vals: [u16; 18] = [
+        let all_vals: [u16; 19] = [
             Syscall::ProcSpawn as u16,
             Syscall::ProcExit as u16,
             Syscall::ProcWait as u16,
@@ -121,6 +121,7 @@ mod tests {
             Syscall::GfxSubmitScene as u16,
             Syscall::GfxPresent as u16,
             Syscall::InputSubscribe as u16,
+            Syscall::InputRead as u16,
         ];
         // All discriminants must be unique
         for i in 0..all_vals.len() {

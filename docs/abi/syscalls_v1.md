@@ -63,6 +63,10 @@ This document defines the initial syscall number map shared by kernel and usersp
 | INPUT | `InputSubscribe` | `0x0601` |
 | INPUT | `InputRead` | `0x0602` |
 
+## Validation notes
+
+- `shared/abi/src/syscalls.rs` includes `tests::syscall_groups_do_not_overlap`, which enumerates every syscall number listed in this document (including `InputRead`) and asserts all discriminants are unique.
+
 ## Compatibility rules
 
 1. Existing syscall numbers are immutable once released.
