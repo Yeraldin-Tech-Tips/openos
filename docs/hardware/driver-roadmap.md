@@ -35,10 +35,10 @@ This document tracks implementation status for scaffolded kernel drivers and def
 
 ### Intel Wi-Fi (`kernel/src/drivers/wifi_intel.rs`)
 
-- [ ] [DRV-WIFI-001] M1 detection (PCI ID scan)
-- [ ] [DRV-WIFI-002] M2 BAR/resource mapping
-- [ ] [DRV-WIFI-003] M3 init sequence + firmware load
-- [ ] [DRV-WIFI-004] M4 basic send/recv path
+- [x] [DRV-WIFI-001] M1 detection (PCI ID scan)
+- [x] [DRV-WIFI-002] M2 BAR/resource mapping
+- [x] [DRV-WIFI-003] M3 init sequence + firmware load
+- [x] [DRV-WIFI-004] M4 basic send/recv path
 
 ### HID stack (`kernel/src/drivers/hid.rs`)
 

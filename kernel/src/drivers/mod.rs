@@ -64,6 +64,14 @@ pub fn ethernet_transmit(payload: &[u8]) -> Result<usize, DriverError> {
     ethernet_intel::transmit(payload)
 }
 
+pub fn wifi_transmit(payload: &[u8]) -> Result<usize, DriverError> {
+    wifi_intel::transmit_station_frame(payload)
+}
+
+pub fn wifi_receive(rx_out: &mut [u8]) -> Result<usize, DriverError> {
+    wifi_intel::receive_station_frame(rx_out)
+}
+
 pub fn ethernet_receive(out: &mut [u8]) -> Result<usize, DriverError> {
     ethernet_intel::receive(out)
 }
