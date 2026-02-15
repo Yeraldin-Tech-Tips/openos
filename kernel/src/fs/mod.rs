@@ -3,6 +3,7 @@ use core::cmp::min;
 use crate::{
     lifecycle::{AppKind, AppSnapshot, AppState, LaunchHistorySnapshot},
     sched::{TaskId, TaskSnapshot, TaskState},
+    sync::IrqSafeLock,
 };
 
 pub const MAX_PATH_BYTES: usize = 256;
@@ -212,17 +213,17 @@ impl<'a> ByteWriter<'a> {
     }
 }
 
-static mut OPEN_FILES: [OpenFile; MAX_OPEN_FILES] = [EMPTY_OPEN_FILE; MAX_OPEN_FILES];
+struct FsState {
+    open_files: [OpenFile; MAX_OPEN_FILES],
+}
+
+static FS_STATE: IrqSafeLock<FsState> = IrqSafeLock::new(FsState {
+    open_files: [EMPTY_OPEN_FILE; MAX_OPEN_FILES],
+});
 
 pub fn init() {
-    unsafe {
-        let ptr = core::ptr::addr_of_mut!(OPEN_FILES).cast::<OpenFile>();
-        let mut i = 0usize;
-        while i < MAX_OPEN_FILES {
-            ptr.add(i).write(EMPTY_OPEN_FILE);
-            i += 1;
-        }
-    }
+    let mut state = FS_STATE.lock();
+    state.open_files = [EMPTY_OPEN_FILE; MAX_OPEN_FILES];
 }
 
 pub fn open(pid: TaskId, path: &[u8], flags: u64) -> Result<u64, FsError> {
@@ -240,21 +241,20 @@ pub fn open(pid: TaskId, path: &[u8], flags: u64) -> Result<u64, FsError> {
     let mut data = [0u8; MAX_FILE_BYTES];
     let len = materialize_node(pid, node_idx, &mut data)?;
 
-    unsafe {
-        let mut slot = 0usize;
-        while slot < MAX_OPEN_FILES {
-            if !OPEN_FILES[slot].in_use {
-                OPEN_FILES[slot] = OpenFile {
-                    in_use: true,
-                    owner_pid: pid,
-                    offset: 0,
-                    len,
-                    data,
-                };
-                return Ok((slot as u64) + 3);
-            }
-            slot += 1;
+    let mut state = FS_STATE.lock();
+    let mut slot = 0usize;
+    while slot < MAX_OPEN_FILES {
+        if !state.open_files[slot].in_use {
+            state.open_files[slot] = OpenFile {
+                in_use: true,
+                owner_pid: pid,
+                offset: 0,
+                len,
+                data,
+            };
+            return Ok((slot as u64) + 3);
         }
+        slot += 1;
     }
 
     Err(FsError::TableFull)
@@ -270,23 +270,22 @@ pub fn read(pid: TaskId, fd: u64, out: &mut [u8]) -> Result<usize, FsError> {
         return Err(FsError::BadFd);
     }
 
-    unsafe {
-        let mut entry = OPEN_FILES[slot];
-        if !entry.in_use || entry.owner_pid != pid {
-            return Err(FsError::BadFd);
-        }
-
-        if entry.offset >= entry.len {
-            return Ok(0);
-        }
-
-        let available = entry.len - entry.offset;
-        let count = min(available, out.len());
-        out[..count].copy_from_slice(&entry.data[entry.offset..entry.offset + count]);
-        entry.offset += count;
-        OPEN_FILES[slot] = entry;
-        Ok(count)
+    let mut state = FS_STATE.lock();
+    let mut entry = state.open_files[slot];
+    if !entry.in_use || entry.owner_pid != pid {
+        return Err(FsError::BadFd);
     }
+
+    if entry.offset >= entry.len {
+        return Ok(0);
+    }
+
+    let available = entry.len - entry.offset;
+    let count = min(available, out.len());
+    out[..count].copy_from_slice(&entry.data[entry.offset..entry.offset + count]);
+    entry.offset += count;
+    state.open_files[slot] = entry;
+    Ok(count)
 }
 
 pub fn close(pid: TaskId, fd: u64) -> Result<(), FsError> {
@@ -299,25 +298,23 @@ pub fn close(pid: TaskId, fd: u64) -> Result<(), FsError> {
         return Err(FsError::BadFd);
     }
 
-    unsafe {
-        let entry = OPEN_FILES[slot];
-        if !entry.in_use || entry.owner_pid != pid {
-            return Err(FsError::BadFd);
-        }
-        OPEN_FILES[slot] = EMPTY_OPEN_FILE;
+    let mut state = FS_STATE.lock();
+    let entry = state.open_files[slot];
+    if !entry.in_use || entry.owner_pid != pid {
+        return Err(FsError::BadFd);
     }
+    state.open_files[slot] = EMPTY_OPEN_FILE;
     Ok(())
 }
 
 pub fn close_all_for_pid(pid: TaskId) {
-    unsafe {
-        let mut i = 0usize;
-        while i < MAX_OPEN_FILES {
-            if OPEN_FILES[i].in_use && OPEN_FILES[i].owner_pid == pid {
-                OPEN_FILES[i] = EMPTY_OPEN_FILE;
-            }
-            i += 1;
+    let mut state = FS_STATE.lock();
+    let mut i = 0usize;
+    while i < MAX_OPEN_FILES {
+        if state.open_files[i].in_use && state.open_files[i].owner_pid == pid {
+            state.open_files[i] = EMPTY_OPEN_FILE;
         }
+        i += 1;
     }
 }
 
@@ -526,15 +523,32 @@ fn render_tree_children(parent: usize, depth: usize, writer: &mut ByteWriter<'_>
 }
 
 fn count_open_fds(pid: TaskId) -> usize {
-    unsafe {
-        let mut count = 0usize;
-        let mut i = 0usize;
-        while i < MAX_OPEN_FILES {
-            if OPEN_FILES[i].in_use && OPEN_FILES[i].owner_pid == pid {
-                count += 1;
-            }
-            i += 1;
+    let state = FS_STATE.lock();
+    let mut count = 0usize;
+    let mut i = 0usize;
+    while i < MAX_OPEN_FILES {
+        if state.open_files[i].in_use && state.open_files[i].owner_pid == pid {
+            count += 1;
         }
-        count
+        i += 1;
+    }
+    count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fd_table_mutation_stress() {
+        init();
+        let pid = TaskId(7);
+        for _ in 0..128 {
+            let fd = open(pid, b"/etc/openos-release", 0).expect("open");
+            let mut out = [0u8; 32];
+            assert!(read(pid, fd, &mut out).expect("read") > 0);
+            close(pid, fd).expect("close");
+        }
+        assert_eq!(count_open_fds(pid), 0);
     }
 }
