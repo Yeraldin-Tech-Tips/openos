@@ -1,5 +1,7 @@
 # OpenOS Code Audit - Issues Found
 
+> Update (post-merge verification): Issues 1, 8, 9, and 11 are now resolved on `work` via merged PRs #4, #5, #7, and #8. Issue 7 is functionally mitigated by scheduler fallback reaping when queue delivery cannot occur; remaining audit items below are still open unless explicitly marked.
+
 Each section below is a discrete issue ready to be filed as a GitHub issue.
 Severity scale: Critical > High > Medium > Low.
 
