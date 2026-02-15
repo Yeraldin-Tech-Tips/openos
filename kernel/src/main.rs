@@ -13,6 +13,7 @@ mod mm;
 mod net;
 mod sched;
 mod start;
+mod sync;
 mod syscall;
 mod ui;
 

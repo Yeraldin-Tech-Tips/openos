@@ -7,6 +7,7 @@ use crate::{
         user::{self, UserContext},
     },
     mm,
+    sync::IrqSafeLock,
 };
 
 pub const MAX_TASKS: usize = 32;
@@ -240,8 +241,10 @@ static EXIT_EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 static mut TASKS: [TaskDescriptor; MAX_TASKS] = [EMPTY_TASK; MAX_TASKS];
 static mut EXIT_EVENTS: [ExitEvent; MAX_EXIT_EVENTS] = [EMPTY_EXIT_EVENT; MAX_EXIT_EVENTS];
+static SCHED_STATE_LOCK: IrqSafeLock<()> = IrqSafeLock::new(());
 
 pub fn init() {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     unsafe {
         let task_ptr = core::ptr::addr_of_mut!(TASKS).cast::<TaskDescriptor>();
         let mut i = 0usize;
@@ -271,6 +274,11 @@ pub fn init() {
 }
 
 pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskError> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
+    register_user_task_locked(reg)
+}
+
+fn register_user_task_locked(reg: TaskRegistration) -> Result<TaskId, RegisterTaskError> {
     if reg.pid.0 == 0 {
         return Err(RegisterTaskError::InvalidPid);
     }
@@ -325,6 +333,7 @@ pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskE
 }
 
 pub fn spawn_from_current() -> Result<TaskId, SpawnTaskError> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     let current_slot = CURRENT_TASK_SLOT.load(Ordering::Acquire);
     let count = TASK_COUNT.load(Ordering::Acquire);
     if current_slot >= count {
@@ -345,7 +354,7 @@ pub fn spawn_from_current() -> Result<TaskId, SpawnTaskError> {
 
     let pid = allocate_pid();
     let child_context = UserContext::for_entry(loaded.entry_virtual);
-    register_user_task(TaskRegistration {
+    register_user_task_locked(TaskRegistration {
         pid,
         parent_pid: parent.pid,
         context: child_context,
@@ -367,6 +376,7 @@ pub fn spawn_from_current() -> Result<TaskId, SpawnTaskError> {
 }
 
 pub fn request_current_exit(status: i64) -> Result<TaskId, ExitTaskError> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     let current_slot = CURRENT_TASK_SLOT.load(Ordering::Acquire);
     let count = TASK_COUNT.load(Ordering::Acquire);
     if current_slot >= count {
@@ -387,6 +397,7 @@ pub fn request_current_exit(status: i64) -> Result<TaskId, ExitTaskError> {
 }
 
 pub fn current_task_id() -> Option<TaskId> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     let slot = CURRENT_TASK_SLOT.load(Ordering::Acquire);
     let count = TASK_COUNT.load(Ordering::Acquire);
     if slot >= count {
@@ -402,6 +413,7 @@ pub fn current_task_id() -> Option<TaskId> {
 }
 
 pub fn collect_child_exit(parent_pid: TaskId) -> Option<(TaskId, i64)> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     unsafe { dequeue_exit_event(parent_pid).or_else(|| recover_child_exit(parent_pid)) }
 }
 
@@ -418,6 +430,7 @@ pub fn allocate_task_id() -> TaskId {
 }
 
 pub fn current_task_address_space() -> Option<mm::AddressSpaceId> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     let slot = CURRENT_TASK_SLOT.load(Ordering::Acquire);
     let count = TASK_COUNT.load(Ordering::Acquire);
     if slot >= count {
@@ -433,6 +446,7 @@ pub fn current_task_address_space() -> Option<mm::AddressSpaceId> {
 }
 
 pub fn reserve_current_vm_range(len: usize) -> Result<u64, VmRangeError> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     if len == 0 {
         return Err(VmRangeError::InvalidLength);
     }
@@ -468,6 +482,7 @@ pub fn reserve_current_vm_range(len: usize) -> Result<u64, VmRangeError> {
 }
 
 pub fn task_descriptor(pid: TaskId) -> Option<TaskDescriptor> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     let count = TASK_COUNT.load(Ordering::Acquire);
     let mut i = 0usize;
     while i < count {
@@ -481,6 +496,7 @@ pub fn task_descriptor(pid: TaskId) -> Option<TaskDescriptor> {
 }
 
 pub fn snapshot_tasks(out: &mut [TaskSnapshot]) -> usize {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     if out.is_empty() {
         return 0;
     }
@@ -506,8 +522,10 @@ pub fn snapshot_tasks(out: &mut [TaskSnapshot]) -> usize {
 }
 
 pub fn dispatch_task(pid: TaskId) -> Result<(), DispatchTaskError> {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     let count = TASK_COUNT.load(Ordering::Acquire);
     let mut i = 0usize;
+    let mut dispatch_context = None;
 
     while i < count {
         let task_ptr = unsafe { task_ptr_mut(i) };
@@ -525,25 +543,32 @@ pub fn dispatch_task(pid: TaskId) -> Result<(), DispatchTaskError> {
             crate::lifecycle::on_task_running(task.pid);
             CURRENT_TASK_SLOT.store(i, Ordering::Release);
             TICKS_IN_SLICE.store(0, Ordering::Release);
-            interrupts::enable_timer_irq();
-
-            unsafe {
-                run_user_entry(
-                    task.pid.0 as u64,
-                    task.address_space,
-                    task.context.instruction_pointer,
-                    task.context.stack_pointer,
-                );
-            }
+            dispatch_context = Some((
+                task.pid.0 as u64,
+                task.address_space,
+                task.context.instruction_pointer,
+                task.context.stack_pointer,
+            ));
+            break;
         }
 
         i += 1;
+    }
+
+    if let Some((pid_raw, address_space, instruction_pointer, stack_pointer)) = dispatch_context {
+        drop(_sched_guard);
+        interrupts::enable_timer_irq();
+
+        unsafe {
+            run_user_entry(pid_raw, address_space, instruction_pointer, stack_pointer);
+        }
     }
 
     Err(DispatchTaskError::MissingTask)
 }
 
 pub fn on_timer_tick(frame: &mut InterruptFrame, tick_count: u64) {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     if (frame.cs & 0x3) != 0x3 {
         return;
     }
@@ -610,6 +635,7 @@ pub fn on_timer_tick(frame: &mut InterruptFrame, tick_count: u64) {
 }
 
 pub fn handle_user_fault(frame: &mut InterruptFrame, vector: u8, error_code: u64) -> bool {
+    let _sched_guard = SCHED_STATE_LOCK.lock();
     if (frame.cs & 0x3) != 0x3 {
         return false;
     }

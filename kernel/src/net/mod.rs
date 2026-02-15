@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use crate::sched::TaskId;
+use crate::{sched::TaskId, sync::IrqSafeLock};
 
 const MAX_SOCKETS: usize = 64;
 const SOCKET_RECV_CAPACITY: usize = 512;
@@ -42,17 +42,17 @@ const EMPTY_SOCKET: Socket = Socket {
     recv_len: 0,
 };
 
-static mut SOCKETS: [Socket; MAX_SOCKETS] = [EMPTY_SOCKET; MAX_SOCKETS];
+struct NetState {
+    sockets: [Socket; MAX_SOCKETS],
+}
+
+static NET_STATE: IrqSafeLock<NetState> = IrqSafeLock::new(NetState {
+    sockets: [EMPTY_SOCKET; MAX_SOCKETS],
+});
 
 pub fn init() {
-    unsafe {
-        let ptr = core::ptr::addr_of_mut!(SOCKETS).cast::<Socket>();
-        let mut i = 0usize;
-        while i < MAX_SOCKETS {
-            ptr.add(i).write(EMPTY_SOCKET);
-            i += 1;
-        }
-    }
+    let mut state = NET_STATE.lock();
+    state.sockets = [EMPTY_SOCKET; MAX_SOCKETS];
 }
 
 pub fn socket(pid: TaskId, domain: u64, kind: u64, _protocol: u64) -> Result<u64, NetError> {
@@ -60,22 +60,21 @@ pub fn socket(pid: TaskId, domain: u64, kind: u64, _protocol: u64) -> Result<u64
         return Err(NetError::InvalidArg);
     }
 
-    unsafe {
-        let mut i = 0usize;
-        while i < MAX_SOCKETS {
-            if !SOCKETS[i].in_use {
-                SOCKETS[i] = Socket {
-                    in_use: true,
-                    owner_pid: pid,
-                    connected: false,
-                    mode: SocketMode::None,
-                    recv_buf: [0; SOCKET_RECV_CAPACITY],
-                    recv_len: 0,
-                };
-                return Ok((i as u64) + 1000);
-            }
-            i += 1;
+    let mut state = NET_STATE.lock();
+    let mut i = 0usize;
+    while i < MAX_SOCKETS {
+        if !state.sockets[i].in_use {
+            state.sockets[i] = Socket {
+                in_use: true,
+                owner_pid: pid,
+                connected: false,
+                mode: SocketMode::None,
+                recv_buf: [0; SOCKET_RECV_CAPACITY],
+                recv_len: 0,
+            };
+            return Ok((i as u64) + 1000);
         }
+        i += 1;
     }
 
     Err(NetError::TableFull)
@@ -91,15 +90,14 @@ pub fn connect(pid: TaskId, fd: u64, addr: &[u8]) -> Result<(), NetError> {
         return Err(NetError::AddressUnsupported);
     };
 
-    unsafe {
-        let mut sock = SOCKETS[slot];
-        if !sock.in_use || sock.owner_pid != pid {
-            return Err(NetError::BadFd);
-        }
-        sock.connected = true;
-        sock.mode = mode;
-        SOCKETS[slot] = sock;
+    let mut state = NET_STATE.lock();
+    let mut sock = state.sockets[slot];
+    if !sock.in_use || sock.owner_pid != pid {
+        return Err(NetError::BadFd);
     }
+    sock.connected = true;
+    sock.mode = mode;
+    state.sockets[slot] = sock;
 
     Ok(())
 }
@@ -110,35 +108,35 @@ pub fn send(pid: TaskId, fd: u64, payload: &[u8]) -> Result<usize, NetError> {
     }
 
     let slot = fd_to_slot(fd)?;
-    unsafe {
-        let mut sock = SOCKETS[slot];
-        if !sock.in_use || sock.owner_pid != pid {
-            return Err(NetError::BadFd);
-        }
-        if !sock.connected {
-            return Err(NetError::NotConnected);
-        }
+    let mut state = NET_STATE.lock();
+    let mut sock = state.sockets[slot];
+    if !sock.in_use || sock.owner_pid != pid {
+        return Err(NetError::BadFd);
+    }
+    if !sock.connected {
+        return Err(NetError::NotConnected);
+    }
 
-        match sock.mode {
-            SocketMode::Loopback => {
-                let free = SOCKET_RECV_CAPACITY.saturating_sub(sock.recv_len);
-                if free == 0 {
-                    return Err(NetError::WouldBlock);
-                }
-                let count = min(free, payload.len());
-                let start = sock.recv_len;
-                sock.recv_buf[start..start + count].copy_from_slice(&payload[..count]);
-                sock.recv_len += count;
-                SOCKETS[slot] = sock;
-                Ok(count)
+    match sock.mode {
+        SocketMode::Loopback => {
+            let free = SOCKET_RECV_CAPACITY.saturating_sub(sock.recv_len);
+            if free == 0 {
+                return Err(NetError::WouldBlock);
             }
-            SocketMode::Nic => {
-                let sent =
-                    crate::drivers::ethernet_transmit(payload).map_err(|_| NetError::WouldBlock)?;
-                Ok(sent)
-            }
-            SocketMode::None => Err(NetError::NotConnected),
+            let count = min(free, payload.len());
+            let start = sock.recv_len;
+            sock.recv_buf[start..start + count].copy_from_slice(&payload[..count]);
+            sock.recv_len += count;
+            state.sockets[slot] = sock;
+            Ok(count)
         }
+        SocketMode::Nic => {
+            drop(state);
+            let sent =
+                crate::drivers::ethernet_transmit(payload).map_err(|_| NetError::WouldBlock)?;
+            Ok(sent)
+        }
+        SocketMode::None => Err(NetError::NotConnected),
     }
 }
 
@@ -148,50 +146,48 @@ pub fn recv(pid: TaskId, fd: u64, out: &mut [u8]) -> Result<usize, NetError> {
     }
 
     let slot = fd_to_slot(fd)?;
-    unsafe {
-        let mut sock = SOCKETS[slot];
-        if !sock.in_use || sock.owner_pid != pid {
-            return Err(NetError::BadFd);
-        }
-        if !sock.connected {
-            return Err(NetError::NotConnected);
-        }
-        if sock.mode == SocketMode::Nic {
-            return Err(NetError::WouldBlock);
-        }
-        if sock.recv_len == 0 {
-            return Err(NetError::WouldBlock);
-        }
-
-        let count = min(sock.recv_len, out.len());
-        out[..count].copy_from_slice(&sock.recv_buf[..count]);
-        if count < sock.recv_len {
-            let remaining = sock.recv_len - count;
-            sock.recv_buf.copy_within(count..sock.recv_len, 0);
-            let mut i = remaining;
-            while i < SOCKET_RECV_CAPACITY {
-                sock.recv_buf[i] = 0;
-                i += 1;
-            }
-            sock.recv_len = remaining;
-        } else {
-            sock.recv_buf = [0; SOCKET_RECV_CAPACITY];
-            sock.recv_len = 0;
-        }
-        SOCKETS[slot] = sock;
-        Ok(count)
+    let mut state = NET_STATE.lock();
+    let mut sock = state.sockets[slot];
+    if !sock.in_use || sock.owner_pid != pid {
+        return Err(NetError::BadFd);
     }
+    if !sock.connected {
+        return Err(NetError::NotConnected);
+    }
+    if sock.mode == SocketMode::Nic {
+        return Err(NetError::WouldBlock);
+    }
+    if sock.recv_len == 0 {
+        return Err(NetError::WouldBlock);
+    }
+
+    let count = min(sock.recv_len, out.len());
+    out[..count].copy_from_slice(&sock.recv_buf[..count]);
+    if count < sock.recv_len {
+        let remaining = sock.recv_len - count;
+        sock.recv_buf.copy_within(count..sock.recv_len, 0);
+        let mut i = remaining;
+        while i < SOCKET_RECV_CAPACITY {
+            sock.recv_buf[i] = 0;
+            i += 1;
+        }
+        sock.recv_len = remaining;
+    } else {
+        sock.recv_buf = [0; SOCKET_RECV_CAPACITY];
+        sock.recv_len = 0;
+    }
+    state.sockets[slot] = sock;
+    Ok(count)
 }
 
 pub fn close_all_for_pid(pid: TaskId) {
-    unsafe {
-        let mut i = 0usize;
-        while i < MAX_SOCKETS {
-            if SOCKETS[i].in_use && SOCKETS[i].owner_pid == pid {
-                SOCKETS[i] = EMPTY_SOCKET;
-            }
-            i += 1;
+    let mut state = NET_STATE.lock();
+    let mut i = 0usize;
+    while i < MAX_SOCKETS {
+        if state.sockets[i].in_use && state.sockets[i].owner_pid == pid {
+            state.sockets[i] = EMPTY_SOCKET;
         }
+        i += 1;
     }
 }
 
@@ -212,4 +208,23 @@ fn fd_to_slot(fd: u64) -> Result<usize, NetError> {
         return Err(NetError::BadFd);
     }
     Ok(slot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socket_table_mutation_stress() {
+        init();
+        let pid = TaskId(9);
+        for _ in 0..128 {
+            let fd = socket(pid, 2, 1, 0).expect("socket");
+            connect(pid, fd, b"loopback").expect("connect");
+            assert_eq!(send(pid, fd, b"ping").expect("send"), 4);
+            let mut out = [0u8; 8];
+            assert_eq!(recv(pid, fd, &mut out).expect("recv"), 4);
+            close_all_for_pid(pid);
+        }
+    }
 }

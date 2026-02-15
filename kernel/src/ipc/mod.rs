@@ -1,5 +1,7 @@
 use abi::ipc::{UiChannel, UiMessageKind};
 
+use crate::sync::IrqSafeLock;
+
 pub const MAX_IPC_MESSAGES: usize = 64;
 pub const MAX_IPC_PAYLOAD: usize = 256;
 
@@ -43,17 +45,17 @@ const EMPTY_MESSAGE: IpcMessage = IpcMessage {
     payload: [0; MAX_IPC_PAYLOAD],
 };
 
-static mut IPC_QUEUE: [IpcMessage; MAX_IPC_MESSAGES] = [EMPTY_MESSAGE; MAX_IPC_MESSAGES];
+struct IpcState {
+    queue: [IpcMessage; MAX_IPC_MESSAGES],
+}
+
+static IPC_STATE: IrqSafeLock<IpcState> = IrqSafeLock::new(IpcState {
+    queue: [EMPTY_MESSAGE; MAX_IPC_MESSAGES],
+});
 
 pub fn init() {
-    unsafe {
-        let queue_ptr = core::ptr::addr_of_mut!(IPC_QUEUE).cast::<IpcMessage>();
-        let mut i = 0usize;
-        while i < MAX_IPC_MESSAGES {
-            queue_ptr.add(i).write(EMPTY_MESSAGE);
-            i += 1;
-        }
-    }
+    let mut state = IPC_STATE.lock();
+    state.queue = [EMPTY_MESSAGE; MAX_IPC_MESSAGES];
 }
 
 pub fn send(header: UiMessageHeaderRaw, payload: &[u8]) -> Result<(), IpcError> {
@@ -65,64 +67,61 @@ pub fn send(header: UiMessageHeaderRaw, payload: &[u8]) -> Result<(), IpcError> 
         return Err(IpcError::InvalidMessage);
     }
 
-    unsafe {
-        let mut i = 0usize;
-        while i < MAX_IPC_MESSAGES {
-            if !IPC_QUEUE[i].in_use {
-                let mut slot = EMPTY_MESSAGE;
-                slot.header = header;
-                if !payload.is_empty() {
-                    slot.payload[..payload.len()].copy_from_slice(payload);
-                }
-                slot.in_use = true;
-                IPC_QUEUE[i] = slot;
-                return Ok(());
+    let mut state = IPC_STATE.lock();
+    let mut i = 0usize;
+    while i < MAX_IPC_MESSAGES {
+        if !state.queue[i].in_use {
+            let mut slot = EMPTY_MESSAGE;
+            slot.header = header;
+            if !payload.is_empty() {
+                slot.payload[..payload.len()].copy_from_slice(payload);
             }
-            i += 1;
+            slot.in_use = true;
+            state.queue[i] = slot;
+            return Ok(());
         }
+        i += 1;
     }
 
     Err(IpcError::QueueFull)
 }
 
 pub fn recv(out: &mut [u8]) -> Result<(UiMessageHeaderRaw, usize), IpcError> {
-    unsafe {
-        let mut i = 0usize;
-        while i < MAX_IPC_MESSAGES {
-            let slot = IPC_QUEUE[i];
-            if slot.in_use {
-                let payload_len = slot.header.payload_len as usize;
-                if payload_len > out.len() {
-                    return Err(IpcError::PayloadTooLarge);
-                }
-
-                if payload_len != 0 {
-                    out[..payload_len].copy_from_slice(&slot.payload[..payload_len]);
-                }
-
-                IPC_QUEUE[i] = EMPTY_MESSAGE;
-                return Ok((slot.header, payload_len));
+    let mut state = IPC_STATE.lock();
+    let mut i = 0usize;
+    while i < MAX_IPC_MESSAGES {
+        let slot = state.queue[i];
+        if slot.in_use {
+            let payload_len = slot.header.payload_len as usize;
+            if payload_len > out.len() {
+                return Err(IpcError::PayloadTooLarge);
             }
-            i += 1;
+
+            if payload_len != 0 {
+                out[..payload_len].copy_from_slice(&slot.payload[..payload_len]);
+            }
+
+            state.queue[i] = EMPTY_MESSAGE;
+            return Ok((slot.header, payload_len));
         }
+        i += 1;
     }
 
     Err(IpcError::QueueEmpty)
 }
 
 pub fn stats() -> IpcStats {
-    unsafe {
-        let mut queued = 0usize;
-        let mut i = 0usize;
-        while i < MAX_IPC_MESSAGES {
-            if IPC_QUEUE[i].in_use {
-                queued += 1;
-            }
-            i += 1;
+    let state = IPC_STATE.lock();
+    let mut queued = 0usize;
+    let mut i = 0usize;
+    while i < MAX_IPC_MESSAGES {
+        if state.queue[i].in_use {
+            queued += 1;
         }
-        IpcStats {
-            queued_messages: queued,
-        }
+        i += 1;
+    }
+    IpcStats {
+        queued_messages: queued,
     }
 }
 
@@ -142,4 +141,34 @@ fn valid_kind(kind: u16) -> bool {
         || kind == UiMessageKind::CloseApp as u16
         || kind == UiMessageKind::PublishNotification as u16
         || kind == UiMessageKind::ToggleControl as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_header() -> UiMessageHeaderRaw {
+        UiMessageHeaderRaw {
+            channel: UiChannel::AppLaunch as u16,
+            kind: UiMessageKind::LaunchApp as u16,
+            payload_len: 1,
+        }
+    }
+
+    #[test]
+    fn ipc_queue_stress_preserves_count() {
+        init();
+        let header = test_header();
+        let mut rounds = 0usize;
+        while rounds < 256 {
+            assert!(send(header, &[42]).is_ok());
+            assert_eq!(stats().queued_messages, 1);
+            let mut out = [0u8; MAX_IPC_PAYLOAD];
+            let (_, len) = recv(&mut out).expect("message expected");
+            assert_eq!(len, 1);
+            assert_eq!(out[0], 42);
+            assert_eq!(stats().queued_messages, 0);
+            rounds += 1;
+        }
+    }
 }
