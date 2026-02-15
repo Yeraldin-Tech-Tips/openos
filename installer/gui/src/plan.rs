@@ -13,7 +13,7 @@ pub enum PartitionAction {
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RollbackCheckpoint {
     BeforePartitionChange,
     BeforeFilesystemFormat,
@@ -48,8 +48,23 @@ impl InstallPlan {
             errors.push("filesystem must be ext4 in v1".to_string());
         }
 
-        if self.rollback_checkpoints.is_empty() {
-            errors.push("rollback_checkpoints must not be empty".to_string());
+        if !self
+            .rollback_checkpoints
+            .contains(&RollbackCheckpoint::BeforePartitionChange)
+        {
+            errors.push("rollback_checkpoints must include BeforePartitionChange".to_string());
+        }
+        if !self
+            .rollback_checkpoints
+            .contains(&RollbackCheckpoint::BeforeFilesystemFormat)
+        {
+            errors.push("rollback_checkpoints must include BeforeFilesystemFormat".to_string());
+        }
+        if !self
+            .rollback_checkpoints
+            .contains(&RollbackCheckpoint::BeforeBootEntryWrite)
+        {
+            errors.push("rollback_checkpoints must include BeforeBootEntryWrite".to_string());
         }
 
         if errors.is_empty() {
@@ -106,10 +121,12 @@ mod tests {
     }
 
     #[test]
-    fn valid_plan_with_single_checkpoint() {
+    fn plan_with_single_checkpoint_fails_validation() {
         let mut plan = valid_plan();
         plan.rollback_checkpoints = vec![RollbackCheckpoint::BeforePartitionChange];
-        assert!(plan.validate().is_ok());
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("BeforeFilesystemFormat")));
+        assert!(errors.iter().any(|e| e.contains("BeforeBootEntryWrite")));
     }
 
     // --- Validation: individual field errors ---
@@ -147,11 +164,36 @@ mod tests {
     }
 
     #[test]
-    fn empty_rollback_checkpoints_fails() {
+    fn missing_before_partition_change_checkpoint_fails() {
         let mut plan = valid_plan();
-        plan.rollback_checkpoints = vec![];
+        plan.rollback_checkpoints = vec![
+            RollbackCheckpoint::BeforeFilesystemFormat,
+            RollbackCheckpoint::BeforeBootEntryWrite,
+        ];
         let errors = plan.validate().unwrap_err();
-        assert!(errors.iter().any(|e| e.contains("rollback_checkpoints")));
+        assert!(errors.iter().any(|e| e.contains("BeforePartitionChange")));
+    }
+
+    #[test]
+    fn missing_before_filesystem_format_checkpoint_fails() {
+        let mut plan = valid_plan();
+        plan.rollback_checkpoints = vec![
+            RollbackCheckpoint::BeforePartitionChange,
+            RollbackCheckpoint::BeforeBootEntryWrite,
+        ];
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("BeforeFilesystemFormat")));
+    }
+
+    #[test]
+    fn missing_before_boot_entry_write_checkpoint_fails() {
+        let mut plan = valid_plan();
+        plan.rollback_checkpoints = vec![
+            RollbackCheckpoint::BeforePartitionChange,
+            RollbackCheckpoint::BeforeFilesystemFormat,
+        ];
+        let errors = plan.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("BeforeBootEntryWrite")));
     }
 
     // --- Validation: multiple errors at once ---
@@ -168,7 +210,7 @@ mod tests {
             rollback_checkpoints: vec![],
         };
         let errors = plan.validate().unwrap_err();
-        assert_eq!(errors.len(), 5, "expected 5 errors: {errors:?}");
+        assert_eq!(errors.len(), 7, "expected 7 errors: {errors:?}");
     }
 
     // --- JSON serialization ---
