@@ -275,6 +275,10 @@ pub fn init() {
 
 pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskError> {
     let _sched_guard = SCHED_STATE_LOCK.lock();
+    register_user_task_locked(reg)
+}
+
+fn register_user_task_locked(reg: TaskRegistration) -> Result<TaskId, RegisterTaskError> {
     if reg.pid.0 == 0 {
         return Err(RegisterTaskError::InvalidPid);
     }
@@ -350,7 +354,7 @@ pub fn spawn_from_current() -> Result<TaskId, SpawnTaskError> {
 
     let pid = allocate_pid();
     let child_context = UserContext::for_entry(loaded.entry_virtual);
-    register_user_task(TaskRegistration {
+    register_user_task_locked(TaskRegistration {
         pid,
         parent_pid: parent.pid,
         context: child_context,
@@ -521,6 +525,7 @@ pub fn dispatch_task(pid: TaskId) -> Result<(), DispatchTaskError> {
     let _sched_guard = SCHED_STATE_LOCK.lock();
     let count = TASK_COUNT.load(Ordering::Acquire);
     let mut i = 0usize;
+    let mut dispatch_context = None;
 
     while i < count {
         let task_ptr = unsafe { task_ptr_mut(i) };
@@ -538,19 +543,25 @@ pub fn dispatch_task(pid: TaskId) -> Result<(), DispatchTaskError> {
             crate::lifecycle::on_task_running(task.pid);
             CURRENT_TASK_SLOT.store(i, Ordering::Release);
             TICKS_IN_SLICE.store(0, Ordering::Release);
-            interrupts::enable_timer_irq();
-
-            unsafe {
-                run_user_entry(
-                    task.pid.0 as u64,
-                    task.address_space,
-                    task.context.instruction_pointer,
-                    task.context.stack_pointer,
-                );
-            }
+            dispatch_context = Some((
+                task.pid.0 as u64,
+                task.address_space,
+                task.context.instruction_pointer,
+                task.context.stack_pointer,
+            ));
+            break;
         }
 
         i += 1;
+    }
+
+    if let Some((pid_raw, address_space, instruction_pointer, stack_pointer)) = dispatch_context {
+        drop(_sched_guard);
+        interrupts::enable_timer_irq();
+
+        unsafe {
+            run_user_entry(pid_raw, address_space, instruction_pointer, stack_pointer);
+        }
     }
 
     Err(DispatchTaskError::MissingTask)
