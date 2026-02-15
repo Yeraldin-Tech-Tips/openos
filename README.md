@@ -57,6 +57,20 @@ Boot status today:
 - Headless QEMU validation works via serial logs, and SDL UI boot is available through the UI runner script
 - Framebuffer full-screen fill and console clear paths now follow width/height/stride addressing rules used by other compositor paths
 
+Driver capability snapshot:
+
+Implemented:
+
+- Kernel driver manager iterates registered drivers and emits probe/init readiness logs to serial
+- Ethernet runtime scaffold includes a serial-backed transmit hook used by the `nic0` validation path
+
+Planned/scaffold:
+
+- Intel Ethernet hardware support is scaffold-only (`probe()` false, `init()` not-ready)
+- Intel Wi-Fi hardware support is scaffold-only (`probe()` false, `init()` unsupported)
+- HID driver stack hardware detection/init is scaffold-only (`probe()` false, `init()` not-ready)
+- Full PCI/PS2/USB detection, BAR/resource mapping, and production runtime send/recv/input paths are tracked in `docs/hardware/driver-roadmap.md`
+
 ## Boot targets
 
 - Live USB image (UEFI)
