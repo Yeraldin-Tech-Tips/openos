@@ -29,7 +29,9 @@ Boot status today:
 - Kernel lifecycle now exposes launch sequence history for shell quick-switch introspection via `/proc/launcher-history`
 - `ProcExit` now requests cooperative task retirement; scheduler reclaims ASID/page resources on switch-out
 - `ProcWait` now lets parents reap child exit events/status from a kernel wait queue
+- `ProcWait`/`FsRead`/`NetRecv`/`IpcSend`/`IpcRecv` now copy through MM-backed user read/write validation helpers instead of direct unchecked user pointer access
 - `VmMap`/`VmUnmap` now back per-task dynamic user mappings with page-table updates and recycle on unmap
+- MM user-range validation now includes mapped-page and writable-page checks, with kernel unit tests covering unmapped/read-only/cross-page spans
 - `FsOpen`/`FsRead`/`FsClose` now expose an in-memory tree-backed read-only VFS with directory iteration + dynamic `/proc` nodes (`self/status`, `tree`, `tasks`, `apps`)
 - `NetSocket`/`NetConnect`/`NetSend`/`NetRecv` now provide loopback sockets plus a NIC transmit path (`nic0`) for userspace validation
 - `IpcSend`/`IpcRecv` now move validated UI lifecycle messages through a kernel queue with bounded payloads
@@ -42,12 +44,16 @@ Boot status today:
 - Widget drag (clock/match/weather) and dock icon reorder are now available as prototype interactions
 - `InputSubscribe`/`InputRead` now run through PS/2 IRQ1 keyboard + IRQ12 mouse input, including pointer motion, click, and drag actions
 - PID1 launcher now keeps recent-app quick-switch history (left/right) and Home toggles between shell and last non-shell app
+- Scheduler now resolves spawn-from-current images by stable module source ID to avoid stale shared ELF staging pointers
+- Scheduler now guarantees child-exit collection when parent reap queues are saturated by falling back to exited-task scans
 - Kernel installs `#UD/#GP/#PF` handlers plus timer IRQ0 (PIC+PIT) for early fault containment and scheduling ticks
 - Scheduler now captures user register context on timer ticks and supports round-robin preemption state transitions
 - Userspace tasks now get distinct ASIDs/page tables so timer switches can hop across isolated CR3 contexts
 - User faults retire offending tasks and release their address-space/page resources for reuse
+- MM recycle free-lists now use interrupt-safe critical sections and ordered publication/consumption semantics
 - A shared `userspace/syscall` crate now centralizes ring3 `int 0x80` wrappers for payload/app reuse
 - Headless QEMU validation works via serial logs, and SDL UI boot is available through the UI runner script
+- Framebuffer full-screen fill and console clear paths now follow width/height/stride addressing rules used by other compositor paths
 
 ## Boot targets
 
