@@ -150,7 +150,15 @@ pub struct TaskDescriptor {
     pub image_source_id: u32,
     next_vm_base: u64,
     pending_exit_status: i64,
+    exit_collected: bool,
     regs: CpuRegisters,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ExitEventMetrics {
+    pub dropped: usize,
+    pub evicted: usize,
+    pub recovered: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -215,6 +223,7 @@ const EMPTY_TASK: TaskDescriptor = TaskDescriptor {
     image_source_id: 0,
     next_vm_base: VM_DYNAMIC_BASE,
     pending_exit_status: 0,
+    exit_collected: false,
     regs: CpuRegisters::zeroed(),
 };
 
@@ -223,6 +232,11 @@ static NEXT_PID: AtomicUsize = AtomicUsize::new(2);
 static CURRENT_TASK_SLOT: AtomicUsize = AtomicUsize::new(INVALID_TASK_SLOT);
 static TICKS_IN_SLICE: AtomicUsize = AtomicUsize::new(0);
 static CONTEXT_SWITCH_COUNT: AtomicUsize = AtomicUsize::new(0);
+static EXIT_EVENT_DROPPED: AtomicUsize = AtomicUsize::new(0);
+static EXIT_EVENT_EVICTED: AtomicUsize = AtomicUsize::new(0);
+static EXIT_EVENT_RECOVERED: AtomicUsize = AtomicUsize::new(0);
+static EXIT_EVENT_HEAD: AtomicUsize = AtomicUsize::new(0);
+static EXIT_EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 static mut TASKS: [TaskDescriptor; MAX_TASKS] = [EMPTY_TASK; MAX_TASKS];
 static mut EXIT_EVENTS: [ExitEvent; MAX_EXIT_EVENTS] = [EMPTY_EXIT_EVENT; MAX_EXIT_EVENTS];
@@ -249,6 +263,11 @@ pub fn init() {
     CURRENT_TASK_SLOT.store(INVALID_TASK_SLOT, Ordering::Release);
     TICKS_IN_SLICE.store(0, Ordering::Release);
     CONTEXT_SWITCH_COUNT.store(0, Ordering::Release);
+    EXIT_EVENT_DROPPED.store(0, Ordering::Release);
+    EXIT_EVENT_EVICTED.store(0, Ordering::Release);
+    EXIT_EVENT_RECOVERED.store(0, Ordering::Release);
+    EXIT_EVENT_HEAD.store(0, Ordering::Release);
+    EXIT_EVENT_COUNT.store(0, Ordering::Release);
 }
 
 pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskError> {
@@ -293,6 +312,7 @@ pub fn register_user_task(reg: TaskRegistration) -> Result<TaskId, RegisterTaskE
             image_source_id: reg.image_source_id,
             next_vm_base: VM_DYNAMIC_BASE,
             pending_exit_status: 0,
+            exit_collected: false,
             regs,
         });
     }
@@ -382,7 +402,15 @@ pub fn current_task_id() -> Option<TaskId> {
 }
 
 pub fn collect_child_exit(parent_pid: TaskId) -> Option<(TaskId, i64)> {
-    unsafe { dequeue_exit_event(parent_pid) }
+    unsafe { dequeue_exit_event(parent_pid).or_else(|| recover_child_exit(parent_pid)) }
+}
+
+pub fn exit_event_metrics() -> ExitEventMetrics {
+    ExitEventMetrics {
+        dropped: EXIT_EVENT_DROPPED.load(Ordering::Acquire),
+        evicted: EXIT_EVENT_EVICTED.load(Ordering::Acquire),
+        recovered: EXIT_EVENT_RECOVERED.load(Ordering::Acquire),
+    }
 }
 
 pub fn allocate_task_id() -> TaskId {
@@ -632,8 +660,10 @@ fn find_registration_slot() -> Option<usize> {
     let count = TASK_COUNT.load(Ordering::Acquire);
     let mut i = 0usize;
     while i < count {
-        let state = unsafe { task_ptr_const(i).read().state };
-        if matches!(state, TaskState::Unused | TaskState::Exited) {
+        let task = unsafe { task_ptr_const(i).read() };
+        if task.state == TaskState::Unused
+            || (task.state == TaskState::Exited && task.exit_collected)
+        {
             return Some(i);
         }
         i += 1;
@@ -644,6 +674,24 @@ fn find_registration_slot() -> Option<usize> {
     } else {
         None
     }
+}
+
+fn parent_can_reap_child(parent_pid: TaskId) -> bool {
+    if parent_pid.0 == 0 {
+        return false;
+    }
+
+    let count = TASK_COUNT.load(Ordering::Acquire);
+    let mut i = 0usize;
+    while i < count {
+        let task = unsafe { task_ptr_const(i).read() };
+        if task.pid == parent_pid {
+            return matches!(task.state, TaskState::Ready | TaskState::Running);
+        }
+        i += 1;
+    }
+
+    false
 }
 
 fn allocate_pid() -> TaskId {
@@ -740,45 +788,113 @@ unsafe fn retire_task_slot_with_status(
     task.state = TaskState::Exited;
     task.address_space = mm::AddressSpaceId::INVALID;
     task.exit_requested = false;
-    task.pending_exit_status = 0;
+    task.pending_exit_status = status;
+    task.exit_collected = false;
     task_ptr.write(task);
 
     (pid, asid, parent_pid, status)
 }
 
 unsafe fn enqueue_exit_event(parent_pid: TaskId, child_pid: TaskId, exit_status: i64) {
-    if parent_pid.0 == 0 {
+    if !parent_can_reap_child(parent_pid) {
+        EXIT_EVENT_DROPPED.fetch_add(1, Ordering::AcqRel);
+        mark_exit_collected(child_pid);
         return;
     }
 
+    let head = EXIT_EVENT_HEAD.load(Ordering::Acquire);
+    let count = EXIT_EVENT_COUNT.load(Ordering::Acquire);
+
+    if count < MAX_EXIT_EVENTS {
+        let slot = (head + count) % MAX_EXIT_EVENTS;
+        EXIT_EVENTS[slot] = ExitEvent {
+            in_use: true,
+            parent_pid,
+            child_pid,
+            exit_status,
+        };
+        EXIT_EVENT_COUNT.store(count + 1, Ordering::Release);
+        return;
+    }
+
+    EXIT_EVENT_EVICTED.fetch_add(1, Ordering::AcqRel);
+    EXIT_EVENTS[head] = ExitEvent {
+        in_use: true,
+        parent_pid,
+        child_pid,
+        exit_status,
+    };
+    EXIT_EVENT_HEAD.store((head + 1) % MAX_EXIT_EVENTS, Ordering::Release);
+    serial::write_line("[openos-kernel] wait queue full, evicting oldest exit event");
+}
+
+unsafe fn dequeue_exit_event(parent_pid: TaskId) -> Option<(TaskId, i64)> {
+    let head = EXIT_EVENT_HEAD.load(Ordering::Acquire);
+    let count = EXIT_EVENT_COUNT.load(Ordering::Acquire);
+
+    let mut offset = 0usize;
+    while offset < count {
+        let slot = (head + offset) % MAX_EXIT_EVENTS;
+        let event = EXIT_EVENTS[slot];
+        if event.parent_pid == parent_pid {
+            let child_pid = event.child_pid;
+            let status = event.exit_status;
+
+            let mut shift = offset;
+            while shift + 1 < count {
+                let from = (head + shift + 1) % MAX_EXIT_EVENTS;
+                let to = (head + shift) % MAX_EXIT_EVENTS;
+                EXIT_EVENTS[to] = EXIT_EVENTS[from];
+                shift += 1;
+            }
+            let tail = (head + count - 1) % MAX_EXIT_EVENTS;
+            EXIT_EVENTS[tail] = EMPTY_EXIT_EVENT;
+            EXIT_EVENT_COUNT.store(count - 1, Ordering::Release);
+
+            mark_exit_collected(child_pid);
+            return Some((child_pid, status));
+        }
+        offset += 1;
+    }
+    None
+}
+
+unsafe fn recover_child_exit(parent_pid: TaskId) -> Option<(TaskId, i64)> {
+    let count = TASK_COUNT.load(Ordering::Acquire);
     let mut i = 0usize;
-    while i < MAX_EXIT_EVENTS {
-        if !EXIT_EVENTS[i].in_use {
-            EXIT_EVENTS[i] = ExitEvent {
-                in_use: true,
-                parent_pid,
-                child_pid,
-                exit_status,
-            };
+    while i < count {
+        let task_ptr = task_ptr_mut(i);
+        let mut task = task_ptr.read();
+        if task.parent_pid == parent_pid && task.state == TaskState::Exited && !task.exit_collected
+        {
+            task.exit_collected = true;
+            let child_pid = task.pid;
+            let exit_status = task.pending_exit_status;
+            task.pending_exit_status = 0;
+            task_ptr.write(task);
+            EXIT_EVENT_RECOVERED.fetch_add(1, Ordering::AcqRel);
+            return Some((child_pid, exit_status));
+        }
+        i += 1;
+    }
+
+    None
+}
+
+unsafe fn mark_exit_collected(child_pid: TaskId) {
+    let count = TASK_COUNT.load(Ordering::Acquire);
+    let mut i = 0usize;
+    while i < count {
+        let task_ptr = task_ptr_mut(i);
+        let mut task = task_ptr.read();
+        if task.pid == child_pid && task.state == TaskState::Exited && !task.exit_collected {
+            task.exit_collected = true;
+            task.pending_exit_status = 0;
+            task_ptr.write(task);
             return;
         }
         i += 1;
     }
-
-    serial::write_line("[openos-kernel] wait queue full, dropping exit event");
-}
-
-unsafe fn dequeue_exit_event(parent_pid: TaskId) -> Option<(TaskId, i64)> {
-    let mut i = 0usize;
-    while i < MAX_EXIT_EVENTS {
-        let event = EXIT_EVENTS[i];
-        if event.in_use && event.parent_pid == parent_pid {
-            EXIT_EVENTS[i] = EMPTY_EXIT_EVENT;
-            return Some((event.child_pid, event.exit_status));
-        }
-        i += 1;
-    }
-    None
 }
 
 unsafe fn task_ptr_const(slot: usize) -> *const TaskDescriptor {
