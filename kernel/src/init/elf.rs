@@ -10,7 +10,7 @@ const ELF_VERSION_CURRENT: u32 = 1;
 const PT_LOAD: u32 = 1;
 
 const MAX_LOAD_SEGMENTS: usize = 16;
-const USERSPACE_IMAGE_MAX: usize = 16 * 1024 * 1024;
+pub const USERSPACE_IMAGE_MAX: usize = 16 * 1024 * 1024;
 const USERSPACE_MIN_VADDR: u64 = 0x0000_0000_0040_0000;
 const USERSPACE_MAX_VADDR_EXCLUSIVE: u64 = 0x0000_8000_0000_0000;
 
@@ -86,9 +86,10 @@ const EMPTY_SEGMENT: LoadedSegment = LoadedSegment {
     staging_offset: 0,
 };
 
-static mut USERSPACE_IMAGE_STAGING: [u8; USERSPACE_IMAGE_MAX] = [0; USERSPACE_IMAGE_MAX];
-
-pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
+pub fn load_elf64_image(
+    image: &[u8],
+    staging: &mut [u8; USERSPACE_IMAGE_MAX],
+) -> Result<LoadedInitImage, LoadError> {
     let header = read_struct::<Elf64Header>(image, 0).ok_or(LoadError::InvalidHeader)?;
 
     if header.e_ident[0..4] != ELF_MAGIC {
@@ -171,10 +172,7 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
         return Err(LoadError::AddressOutOfRange);
     }
 
-    unsafe {
-        let staging_ptr = core::ptr::addr_of_mut!(USERSPACE_IMAGE_STAGING).cast::<u8>();
-        core::ptr::write_bytes(staging_ptr, 0, image_size);
-    }
+    staging[..image_size].fill(0);
 
     let mut segments = [EMPTY_SEGMENT; MAX_LOAD_SEGMENTS];
     let mut seg_idx = 0usize;
@@ -207,16 +205,7 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
             return Err(LoadError::SegmentOutOfBounds);
         }
 
-        unsafe {
-            let dst = core::ptr::addr_of_mut!(USERSPACE_IMAGE_STAGING)
-                .cast::<u8>()
-                .add(dst_start);
-            core::ptr::copy_nonoverlapping(
-                image.as_ptr().add(src_start),
-                dst,
-                ph.p_filesz as usize,
-            );
-        }
+        staging[dst_start..dst_file_end].copy_from_slice(&image[src_start..src_end]);
 
         segments[seg_idx] = LoadedSegment {
             vaddr: ph.p_vaddr,
@@ -239,11 +228,7 @@ pub fn load_elf64_image(image: &[u8]) -> Result<LoadedInitImage, LoadError> {
         return Err(LoadError::EntryOutOfBounds);
     }
 
-    let entry_staging = unsafe {
-        core::ptr::addr_of!(USERSPACE_IMAGE_STAGING)
-            .cast::<u8>()
-            .add(entry_off)
-    };
+    let entry_staging = staging.as_ptr().wrapping_add(entry_off);
 
     Ok(LoadedInitImage {
         entry_virtual: header.e_entry,
@@ -263,4 +248,84 @@ fn read_struct<T: Copy>(bytes: &[u8], offset: usize) -> Option<T> {
 
     let ptr = unsafe { bytes.as_ptr().add(offset).cast::<T>() };
     Some(unsafe { core::ptr::read_unaligned(ptr) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_u16_le(buf: &mut [u8], off: usize, v: u16) {
+        buf[off..off + 2].copy_from_slice(&v.to_le_bytes());
+    }
+
+    fn write_u32_le(buf: &mut [u8], off: usize, v: u32) {
+        buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    fn write_u64_le(buf: &mut [u8], off: usize, v: u64) {
+        buf[off..off + 8].copy_from_slice(&v.to_le_bytes());
+    }
+
+    fn make_minimal_elf64(entry: u64, segment_vaddr: u64, segment_data: &[u8]) -> [u8; 256] {
+        let mut elf = [0u8; 256];
+
+        // ELF header
+        elf[0..4].copy_from_slice(&ELF_MAGIC);
+        elf[4] = ELF_CLASS_64;
+        elf[5] = ELF_DATA_LSB;
+        elf[6] = 1; // EV_CURRENT
+        write_u16_le(&mut elf, 16, ELF_TYPE_EXEC);
+        write_u16_le(&mut elf, 18, ELF_MACHINE_X86_64);
+        write_u32_le(&mut elf, 20, ELF_VERSION_CURRENT);
+        write_u64_le(&mut elf, 24, entry);
+        write_u64_le(&mut elf, 32, 64); // e_phoff
+        write_u64_le(&mut elf, 40, 0); // e_shoff
+        write_u32_le(&mut elf, 48, 0);
+        write_u16_le(&mut elf, 52, 64); // e_ehsize
+        write_u16_le(&mut elf, 54, 56); // e_phentsize
+        write_u16_le(&mut elf, 56, 1); // e_phnum
+
+        // Program header at offset 64
+        let ph = 64usize;
+        write_u32_le(&mut elf, ph, PT_LOAD);
+        write_u32_le(&mut elf, ph + 4, 0x5); // RX
+        write_u64_le(&mut elf, ph + 8, 128); // p_offset
+        write_u64_le(&mut elf, ph + 16, segment_vaddr);
+        write_u64_le(&mut elf, ph + 24, 0);
+        write_u64_le(&mut elf, ph + 32, segment_data.len() as u64);
+        write_u64_le(&mut elf, ph + 40, segment_data.len() as u64);
+        write_u64_le(&mut elf, ph + 48, 0x1000);
+
+        elf[128..128 + segment_data.len()].copy_from_slice(segment_data);
+        elf
+    }
+
+    #[test]
+    fn loader_writes_into_provided_staging_buffer() {
+        let image = make_minimal_elf64(0x400000, 0x400000, &[0xAA, 0xBB, 0xCC, 0xDD]);
+        let mut staging = [0xFFu8; USERSPACE_IMAGE_MAX];
+
+        let loaded = load_elf64_image(&image, &mut staging).expect("load elf");
+
+        assert_eq!(loaded.image_base, 0x400000);
+        assert_eq!(loaded.image_size, 4);
+        assert_eq!(loaded.entry_virtual, 0x400000);
+        assert_eq!(&staging[0..4], &[0xAA, 0xBB, 0xCC, 0xDD]);
+        assert_eq!(loaded.entry_staging, staging.as_ptr());
+    }
+
+    #[test]
+    fn loader_clears_previous_staging_bytes() {
+        let image_a = make_minimal_elf64(0x400000, 0x400000, &[1, 2, 3, 4]);
+        let image_b = make_minimal_elf64(0x400000, 0x400002, &[9, 8]);
+        let mut staging = [0xEEu8; USERSPACE_IMAGE_MAX];
+
+        load_elf64_image(&image_a, &mut staging).expect("first load");
+        load_elf64_image(&image_b, &mut staging).expect("second load");
+
+        assert_eq!(staging[0], 0);
+        assert_eq!(staging[1], 0);
+        assert_eq!(staging[2], 9);
+        assert_eq!(staging[3], 8);
+    }
 }
