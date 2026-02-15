@@ -36,3 +36,22 @@ Current loader behavior:
 2. Kernel must read framebuffer only when framebuffer flag is set.
 3. Kernel must validate module pointers/sizes before use.
 4. Loader must allocate memory map/module backing in loader-owned pages before boot handoff.
+
+## Framebuffer format contract
+
+When `BOOT_FLAG_FRAMEBUFFER_PRESENT` is set, `framebuffer` must describe a linear, 32-bits-per-
+pixel GOP framebuffer with one of these UEFI pixel formats:
+
+- `PixelFormat::Rgb` (memory order `R8G8B8X8`)
+- `PixelFormat::Bgr` (memory order `B8G8R8X8`)
+
+`framebuffer.bytes_per_pixel` must be `4` for any published framebuffer.
+
+If the current GOP mode uses an unsupported format (for example `Bitmask` or `BltOnly`), the
+loader must not publish framebuffer data in `BootInfo`:
+
+- clear `BOOT_FLAG_FRAMEBUFFER_PRESENT`
+- provide a zeroed `FramebufferInfo`
+
+This fallback allows the kernel to skip graphics initialization cleanly and continue with a
+non-graphical boot path.
