@@ -121,6 +121,7 @@ pub enum UserMapError {
     ResourceTrackingOverflow,
     PageTablePoolExhausted,
     UserFramePoolExhausted,
+    EncounteredHugeMapping,
 }
 
 pub fn init(_map: MemoryMap) {
@@ -595,6 +596,9 @@ unsafe fn get_or_create_next_table(
 ) -> Result<*mut PageTable, UserMapError> {
     let entry = (*table).entries[index];
     if (entry & PTE_PRESENT) != 0 {
+        if (entry & PTE_HUGE) != 0 {
+            return Err(UserMapError::EncounteredHugeMapping);
+        }
         let mut updated = entry;
         if user_accessible && (updated & PTE_USER) == 0 {
             updated |= PTE_USER;
@@ -953,6 +957,29 @@ mod tests {
         assert_eq!(
             validate_user_write_range(asid, 0x401ff0, 32),
             Err(UserMapError::AddressOutOfRange)
+        );
+    }
+
+    #[test]
+    fn map_user_range_rejects_huge_pd_entry() {
+        reset_test_state();
+        let (asid, space) = alloc_space();
+        let root = unsafe { core::ptr::addr_of_mut!((*space).pml4) };
+        let virt_addr = 0x0040_0000;
+
+        unsafe {
+            let pml4_index = table_index(virt_addr, 39);
+            let pdpt_index = table_index(virt_addr, 30);
+            let pd_index = table_index(virt_addr, 21);
+
+            let pdpt = get_or_create_next_table(root, pml4_index, true, space).unwrap();
+            let pd = get_or_create_next_table(pdpt, pdpt_index, true, space).unwrap();
+            (*pd).entries[pd_index] = (0x0020_0000 & PHYS_ADDR_MASK) | PTE_PRESENT | PTE_HUGE;
+        }
+
+        assert_eq!(
+            map_user_range(asid, virt_addr, PAGE_SIZE, true, false),
+            Err(UserMapError::EncounteredHugeMapping)
         );
     }
 }

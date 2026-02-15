@@ -66,6 +66,7 @@ This document defines the initial syscall number map shared by kernel and usersp
 ## Validation notes
 
 - `shared/abi/src/syscalls.rs` includes `tests::syscall_groups_do_not_overlap`, which enumerates every syscall number listed in this document (including `InputRead`) and asserts all discriminants are unique.
+- `VmMap` only supports 4 KiB user leaf mappings; if the requested virtual range would descend through a present huge-page entry in an intermediate table, the kernel rejects the request with `-22` (`EINVAL`) rather than treating that entry as a next-level table pointer.
 
 ## Compatibility rules
 
