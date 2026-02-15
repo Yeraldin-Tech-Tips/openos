@@ -155,7 +155,8 @@ pub fn recv(pid: TaskId, fd: u64, out: &mut [u8]) -> Result<usize, NetError> {
         return Err(NetError::NotConnected);
     }
     if sock.mode == SocketMode::Nic {
-        return Err(NetError::WouldBlock);
+        drop(state);
+        return crate::drivers::ethernet_receive(out).map_err(|_| NetError::WouldBlock);
     }
     if sock.recv_len == 0 {
         return Err(NetError::WouldBlock);
