@@ -21,6 +21,7 @@ Boot status today:
 - PID1 launch path uses boot-module metadata with ELF validation, userspace virtual mapping, and ring3 `iretq` dispatch
 - Userspace `int 0x80` trap path is active with kernel dispatch + `iretq` return to PID1
 - Userspace `FsWrite` now sends ring3 bytes to kernel serial for early process telemetry
+- Host-side `openos-init` PID1 stub now performs explicit VFS/service-policy bootstrap probes and launches shell via `ProcSpawn(1)` with serial/stdout diagnostics
 - `ProcSpawn` now creates runnable user tasks from the active userspace image (no hardcoded `pid2`)
 - `ProcSpawn(spawn_arg)` now supports module-selected app spawning (`shell/settings/files`) in addition to clone semantics
 - PID1 init payload now runs a gesture-driven launcher loop with queued app requests and child reaping
