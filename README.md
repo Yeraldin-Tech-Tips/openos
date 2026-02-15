@@ -46,6 +46,7 @@ Boot status today:
 - `InputSubscribe`/`InputRead` now run through PS/2 IRQ1 keyboard + IRQ12 mouse input, including pointer motion, click, and drag actions
 - PID1 launcher now keeps recent-app quick-switch history (left/right) and Home toggles between shell and last non-shell app
 - Scheduler now resolves spawn-from-current images by stable module source ID to avoid stale shared ELF staging pointers
+- Scheduler reserves PID 0 and PID 1 permanently; allocator wraparound skips both IDs so dynamic tasks always receive PID >= 2
 - Scheduler now guarantees child-exit collection when parent reap queues are saturated by falling back to exited-task scans
 - Kernel installs `#UD/#GP/#PF` handlers plus timer IRQ0 (PIC+PIT) for early fault containment and scheduling ticks
 - Scheduler now captures user register context on timer ticks and supports round-robin preemption state transitions
