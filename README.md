@@ -81,6 +81,8 @@ Boot status today:
 - `qemu-system-x86_64` (for local boot validation)
 - OVMF firmware at `bios/OVMF_CODE.fd` (auto-copied by QEMU scripts from `/usr/share/OVMF/OVMF_CODE.fd` when available)
 
+> Note: Build output directories (for example `target/`, `target-test/`, `.build/`, and `out/`) are generated artifacts and must not be committed to version control.
+
 ## Quick start (once dependencies are installed)
 
 ```bash
