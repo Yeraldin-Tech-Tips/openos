@@ -203,6 +203,10 @@ fn proc_exit(status: u64) -> SyscallResult {
     }
 }
 
+// proc_wait is non-blocking: it returns -11 when no child has exited yet.
+// Scheduler exit delivery is lossy under queue pressure, but collect_child_exit
+// falls back to scanning exited children, so each exited child remains eventually
+// reapable and returned exactly once.
 fn proc_wait(status_out_ptr: u64) -> SyscallResult {
     let parent_pid = match crate::sched::current_task_id() {
         Some(pid) => pid,
