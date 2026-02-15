@@ -140,7 +140,8 @@ fn map_mm_access_error(err: crate::mm::UserMapError) -> SyscallResult {
         crate::mm::UserMapError::InvalidImage
         | crate::mm::UserMapError::InvalidEntry
         | crate::mm::UserMapError::InvalidRange
-        | crate::mm::UserMapError::AlreadyMapped => SyscallResult::err(-22),
+        | crate::mm::UserMapError::AlreadyMapped
+        | crate::mm::UserMapError::EncounteredHugeMapping => SyscallResult::err(-22),
         crate::mm::UserMapError::ResourceTrackingOverflow
         | crate::mm::UserMapError::PageTablePoolExhausted
         | crate::mm::UserMapError::UserFramePoolExhausted => SyscallResult::err(-12),
@@ -280,7 +281,8 @@ fn vm_map(addr_hint: u64, len: u64, flags: u64) -> SyscallResult {
         Err(
             crate::mm::UserMapError::InvalidImage
             | crate::mm::UserMapError::InvalidEntry
-            | crate::mm::UserMapError::InvalidRange,
+            | crate::mm::UserMapError::InvalidRange
+            | crate::mm::UserMapError::EncounteredHugeMapping,
         ) => SyscallResult::err(-22),
         Err(crate::mm::UserMapError::AddressOutOfRange) => SyscallResult::err(EFAULT),
         Err(crate::mm::UserMapError::AlreadyMapped) => SyscallResult::err(-17),
@@ -313,7 +315,8 @@ fn vm_unmap(addr: u64, len: u64) -> SyscallResult {
             crate::mm::UserMapError::InvalidImage
             | crate::mm::UserMapError::InvalidEntry
             | crate::mm::UserMapError::InvalidRange
-            | crate::mm::UserMapError::AlreadyMapped,
+            | crate::mm::UserMapError::AlreadyMapped
+            | crate::mm::UserMapError::EncounteredHugeMapping,
         ) => SyscallResult::err(-22),
         Err(crate::mm::UserMapError::AddressOutOfRange) => SyscallResult::err(EFAULT),
         Err(
