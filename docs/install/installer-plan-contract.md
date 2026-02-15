@@ -16,4 +16,7 @@ Installer emits an `InstallPlan` JSON document before execution.
 
 1. `filesystem` must be `ext4` in v1.
 2. `efi_partition` must be FAT32 and mounted under `/boot/efi` during install.
-3. `rollback_checkpoints` must include steps before partition, format, and boot entry writes.
+3. `rollback_checkpoints` must include all of:
+   - `BeforePartitionChange`
+   - `BeforeFilesystemFormat`
+   - `BeforeBootEntryWrite`
