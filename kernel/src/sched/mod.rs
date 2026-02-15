@@ -676,6 +676,24 @@ fn find_registration_slot() -> Option<usize> {
     }
 }
 
+fn parent_can_reap_child(parent_pid: TaskId) -> bool {
+    if parent_pid.0 == 0 {
+        return false;
+    }
+
+    let count = TASK_COUNT.load(Ordering::Acquire);
+    let mut i = 0usize;
+    while i < count {
+        let task = unsafe { task_ptr_const(i).read() };
+        if task.pid == parent_pid {
+            return matches!(task.state, TaskState::Ready | TaskState::Running);
+        }
+        i += 1;
+    }
+
+    false
+}
+
 fn allocate_pid() -> TaskId {
     loop {
         let next = NEXT_PID.fetch_add(1, Ordering::AcqRel) as u32;
@@ -778,8 +796,9 @@ unsafe fn retire_task_slot_with_status(
 }
 
 unsafe fn enqueue_exit_event(parent_pid: TaskId, child_pid: TaskId, exit_status: i64) {
-    if parent_pid.0 == 0 {
+    if !parent_can_reap_child(parent_pid) {
         EXIT_EVENT_DROPPED.fetch_add(1, Ordering::AcqRel);
+        mark_exit_collected(child_pid);
         return;
     }
 
