@@ -27,9 +27,9 @@ pub enum DriverError {
 
 pub fn init() {
     let drivers: [&dyn KernelDriver; 3] = [
-        &ethernet_intel::IntelEthernet,
-        &wifi_intel::IntelWifi,
         &hid::HidStack,
+        &wifi_intel::IntelWifi,
+        &ethernet_intel::IntelEthernet,
     ];
 
     for driver in drivers {
