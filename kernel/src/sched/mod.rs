@@ -557,7 +557,9 @@ pub fn dispatch_task(pid: TaskId) -> Result<(), DispatchTaskError> {
 
     if let Some((pid_raw, address_space, instruction_pointer, stack_pointer)) = dispatch_context {
         drop(_sched_guard);
-        interrupts::enable_timer_irq();
+        // Defer timer until first syscall; timer firing before PID1's first instruction
+        // leaves system stuck (single tick, no further progress).
+        // interrupts::enable_timer_irq();
 
         unsafe {
             run_user_entry(pid_raw, address_space, instruction_pointer, stack_pointer);
