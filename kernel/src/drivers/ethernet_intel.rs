@@ -7,6 +7,7 @@ use crate::{arch::x86_64::serial, sync::IrqSafeLock};
 const PCI_CONFIG_ADDR_PORT: u16 = 0xCF8;
 const PCI_CONFIG_DATA_PORT: u16 = 0xCFC;
 const PCI_VENDOR_INTEL: u16 = 0x8086;
+const PCI_SCAN_MAX_BUS: u16 = 31;
 
 const SUPPORTED_INTEL_NICS: &[u16] = &[0x100E, 0x10D3, 0x153A, 0x15B8];
 
@@ -198,28 +199,50 @@ pub fn receive(out: &mut [u8]) -> Result<usize, DriverError> {
 
 fn find_supported_intel_nic() -> Option<PciFunction> {
     let mut bus = 0u16;
-    while bus <= 255 {
+    while bus <= PCI_SCAN_MAX_BUS {
         let mut slot = 0u8;
         while slot < 32 {
-            let mut function = 0u8;
-            while function < 8 {
-                let id = pci_config_read_u32(bus as u8, slot, function, 0x00);
-                let vendor_id = (id & 0xFFFF) as u16;
-                let device_id = ((id >> 16) & 0xFFFF) as u16;
-                if vendor_id == PCI_VENDOR_INTEL && SUPPORTED_INTEL_NICS.contains(&device_id) {
-                    return Some(PciFunction {
-                        bus: bus as u8,
-                        slot,
-                        function,
-                        vendor_id,
-                        device_id,
-                    });
+            let id0 = pci_config_read_u32(bus as u8, slot, 0, 0x00);
+            if id0 != 0xFFFF_FFFF {
+                if let Some(found) = decode_supported_intel_nic(bus as u8, slot, 0, id0) {
+                    return Some(found);
                 }
-                function += 1;
+
+                let header = pci_config_read_u32(bus as u8, slot, 0, 0x0C);
+                let multi_function = ((header >> 16) & 0x80) != 0;
+                if multi_function {
+                    let mut function = 1u8;
+                    while function < 8 {
+                        let id = pci_config_read_u32(bus as u8, slot, function, 0x00);
+                        if id != 0xFFFF_FFFF {
+                            if let Some(found) =
+                                decode_supported_intel_nic(bus as u8, slot, function, id)
+                            {
+                                return Some(found);
+                            }
+                        }
+                        function += 1;
+                    }
+                }
             }
             slot += 1;
         }
         bus += 1;
+    }
+    None
+}
+
+fn decode_supported_intel_nic(bus: u8, slot: u8, function: u8, id: u32) -> Option<PciFunction> {
+    let vendor_id = (id & 0xFFFF) as u16;
+    let device_id = ((id >> 16) & 0xFFFF) as u16;
+    if vendor_id == PCI_VENDOR_INTEL && SUPPORTED_INTEL_NICS.contains(&device_id) {
+        return Some(PciFunction {
+            bus,
+            slot,
+            function,
+            vendor_id,
+            device_id,
+        });
     }
     None
 }

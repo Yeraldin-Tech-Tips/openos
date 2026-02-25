@@ -12,6 +12,7 @@ const PS2_STATUS_PORT: u16 = 0x64;
 
 const USB_CLASS_SERIAL_BUS: u8 = 0x0C;
 const USB_SUBCLASS_USB: u8 = 0x03;
+const PCI_SCAN_MAX_BUS: u16 = 31;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum UsbHostKind {
@@ -221,46 +222,67 @@ fn detect_ps2_controller() -> Option<Ps2Controller> {
 
 fn detect_usb_host_controller() -> Option<UsbHostController> {
     let mut bus = 0u16;
-    while bus <= 255 {
+    while bus <= PCI_SCAN_MAX_BUS {
         let mut slot = 0u8;
         while slot < 32 {
-            let mut function = 0u8;
-            while function < 8 {
-                let class = pci_config_read_u32(bus as u8, slot, function, 0x08);
-                let base_class = ((class >> 24) & 0xFF) as u8;
-                let subclass = ((class >> 16) & 0xFF) as u8;
-                let prog_if = ((class >> 8) & 0xFF) as u8;
+            if let Some(found) = detect_usb_host_function(bus as u8, slot, 0) {
+                return Some(found);
+            }
 
-                if base_class == USB_CLASS_SERIAL_BUS && subclass == USB_SUBCLASS_USB {
-                    let bar0 = pci_config_read_u32(bus as u8, slot, function, 0x10);
-                    let (io_base, mmio_base) = decode_pci_bar(bar0);
-                    let irq_line =
-                        (pci_config_read_u32(bus as u8, slot, function, 0x3C) & 0xFF) as u8;
-                    let irq = if irq_line == 0 || irq_line == 0xFF {
-                        None
-                    } else {
-                        Some(irq_line)
-                    };
-
-                    return Some(UsbHostController {
-                        function: PciFunction {
-                            bus: bus as u8,
-                            slot,
-                            function,
-                        },
-                        kind: decode_usb_host_kind(prog_if),
-                        io_base,
-                        mmio_base,
-                        irq,
-                    });
+            let function0_id = pci_config_read_u32(bus as u8, slot, 0, 0x00);
+            if function0_id != 0xFFFF_FFFF {
+                let header = pci_config_read_u32(bus as u8, slot, 0, 0x0C);
+                let multi_function = ((header >> 16) & 0x80) != 0;
+                if multi_function {
+                    let mut function = 1u8;
+                    while function < 8 {
+                        if let Some(found) = detect_usb_host_function(bus as u8, slot, function) {
+                            return Some(found);
+                        }
+                        function += 1;
+                    }
                 }
-                function += 1;
             }
             slot += 1;
         }
         bus += 1;
     }
     None
+}
+
+fn detect_usb_host_function(bus: u8, slot: u8, function: u8) -> Option<UsbHostController> {
+    if pci_config_read_u32(bus, slot, function, 0x00) == 0xFFFF_FFFF {
+        return None;
+    }
+
+    let class = pci_config_read_u32(bus, slot, function, 0x08);
+    let base_class = ((class >> 24) & 0xFF) as u8;
+    let subclass = ((class >> 16) & 0xFF) as u8;
+    if base_class != USB_CLASS_SERIAL_BUS || subclass != USB_SUBCLASS_USB {
+        return None;
+    }
+
+    let prog_if = ((class >> 8) & 0xFF) as u8;
+    let bar0 = pci_config_read_u32(bus, slot, function, 0x10);
+    let (io_base, mmio_base) = decode_pci_bar(bar0);
+    let irq_line = (pci_config_read_u32(bus, slot, function, 0x3C) & 0xFF) as u8;
+    let irq = if irq_line == 0 || irq_line == 0xFF {
+        None
+    } else {
+        Some(irq_line)
+    };
+
+    Some(UsbHostController {
+        function: PciFunction {
+            bus,
+            slot,
+            function,
+        },
+        kind: decode_usb_host_kind(prog_if),
+        io_base,
+        mmio_base,
+        irq,
+    })
 }
 
 fn decode_usb_host_kind(prog_if: u8) -> UsbHostKind {

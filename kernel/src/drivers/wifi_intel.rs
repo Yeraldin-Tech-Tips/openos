@@ -7,6 +7,7 @@ const PCI_CONFIG_DATA: u16 = 0xCFC;
 const PCI_COMMAND_OFFSET: u8 = 0x04;
 const PCI_BAR0_OFFSET: u8 = 0x10;
 const PCI_CLASS_OFFSET: u8 = 0x08;
+const PCI_SCAN_MAX_BUS: u16 = 31;
 
 const PCI_COMMAND_IO_SPACE: u16 = 1 << 0;
 const PCI_COMMAND_MEM_SPACE: u16 = 1 << 1;
@@ -165,7 +166,7 @@ pub fn receive_station_frame(rx_out: &mut [u8]) -> Result<usize, DriverError> {
 }
 
 fn scan_supported_adapter() -> Option<PciLocation> {
-    for bus in 0u16..=255 {
+    for bus in 0u16..=PCI_SCAN_MAX_BUS {
         for device in 0u8..32 {
             let location = PciLocation {
                 bus: bus as u8,
