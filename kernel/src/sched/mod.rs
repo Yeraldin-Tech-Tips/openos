@@ -292,13 +292,17 @@ fn register_user_task_locked(reg: TaskRegistration) -> Result<TaskId, RegisterTa
 
     let slot = find_registration_slot().ok_or(RegisterTaskError::TableFull)?;
     let count = TASK_COUNT.load(Ordering::Acquire);
+    let user_stack_top = reg
+        .context
+        .stack_pointer
+        .saturating_add(user::USER_ENTRY_STACK_BIAS);
 
     let address_space = mm::map_user_task_image(
         reg.context.instruction_pointer,
         reg.entry_staging,
         reg.image_base,
         reg.image_size,
-        reg.context.stack_pointer,
+        user_stack_top,
         user::DEFAULT_USER_STACK_SIZE,
     )
     .map_err(|_| RegisterTaskError::MemoryMapFailed)?;
