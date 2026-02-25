@@ -361,8 +361,8 @@ fn drain_one_ipc_message() {
         kind: UiMessageKind::LaunchApp,
         payload_len: 0,
     };
-    let mut recv_payload = [0u8; 32];
-    let _ = ipc_recv(&mut recv_header, &mut recv_payload);
+    static mut IPC_RECV_BUF: [u8; 32] = [0; 32];
+    let _ = unsafe { ipc_recv(&mut recv_header, &mut IPC_RECV_BUF) };
 }
 
 fn app_payload(spawn_arg: u64) -> &'static [u8] {
