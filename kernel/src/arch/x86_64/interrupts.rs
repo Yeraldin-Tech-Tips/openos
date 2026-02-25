@@ -19,6 +19,10 @@ const PIC1_DATA: u16 = 0x21;
 const PIC2_COMMAND: u16 = 0xA0;
 const PIC2_DATA: u16 = 0xA1;
 const PIC_EOI: u8 = 0x20;
+const IRQ_TIMER_LINE: u8 = 0;
+const IRQ_KEYBOARD_LINE: u8 = 1;
+const IRQ_CASCADE_LINE: u8 = 2;
+const IRQ_MOUSE_LINE: u8 = 12;
 
 const PIT_COMMAND: u16 = 0x43;
 const PIT_CHANNEL0: u16 = 0x40;
@@ -66,10 +70,14 @@ pub struct InterruptFrame {
 }
 
 static TIMER_IRQ_ENABLED: AtomicBool = AtomicBool::new(false);
+static KEYBOARD_IRQ_ENABLED: AtomicBool = AtomicBool::new(false);
+static MOUSE_IRQ_ENABLED: AtomicBool = AtomicBool::new(false);
 static TIMER_TICK_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn init() {
     TIMER_IRQ_ENABLED.store(false, Ordering::Release);
+    KEYBOARD_IRQ_ENABLED.store(false, Ordering::Release);
+    MOUSE_IRQ_ENABLED.store(false, Ordering::Release);
     TIMER_TICK_COUNT.store(0, Ordering::Release);
 
     tables::install_kernel_interrupt(
@@ -101,18 +109,15 @@ pub fn init() {
     mask_all_irqs();
     program_pit(PIT_FREQUENCY_HZ);
     init_ps2_mouse();
+    enable_keyboard_irq();
+    enable_mouse_irq();
 
     serial::write_hex_u64("[openos-kernel] irq.timer.vector=", TIMER_VECTOR as u64);
     serial::write_hex_u64("[openos-kernel] pit.hz=", PIT_FREQUENCY_HZ as u64);
 }
 
 pub fn enable_timer_irq() {
-    unsafe {
-        let master_mask = inb(PIC1_DATA) & !0x07;
-        let slave_mask = inb(PIC2_DATA) & !(1 << 4);
-        outb(PIC1_DATA, master_mask);
-        outb(PIC2_DATA, slave_mask);
-    }
+    set_irq_masked(IRQ_TIMER_LINE, false);
 
     if !TIMER_IRQ_ENABLED.swap(true, Ordering::AcqRel) {
         serial::write_line("[openos-kernel] timer irq enabled");
@@ -120,15 +125,27 @@ pub fn enable_timer_irq() {
 }
 
 pub fn disable_timer_irq() {
-    unsafe {
-        let master_mask = inb(PIC1_DATA) | 0x07;
-        let slave_mask = inb(PIC2_DATA) | (1 << 4);
-        outb(PIC1_DATA, master_mask);
-        outb(PIC2_DATA, slave_mask);
-    }
+    set_irq_masked(IRQ_TIMER_LINE, true);
 
     if TIMER_IRQ_ENABLED.swap(false, Ordering::AcqRel) {
         serial::write_line("[openos-kernel] timer irq disabled");
+    }
+}
+
+pub fn enable_keyboard_irq() {
+    set_irq_masked(IRQ_KEYBOARD_LINE, false);
+
+    if !KEYBOARD_IRQ_ENABLED.swap(true, Ordering::AcqRel) {
+        serial::write_line("[openos-kernel] keyboard irq enabled");
+    }
+}
+
+pub fn enable_mouse_irq() {
+    set_irq_masked(IRQ_CASCADE_LINE, false);
+    set_irq_masked(IRQ_MOUSE_LINE, false);
+
+    if !MOUSE_IRQ_ENABLED.swap(true, Ordering::AcqRel) {
+        serial::write_line("[openos-kernel] mouse irq enabled");
     }
 }
 
@@ -233,6 +250,34 @@ fn mask_all_irqs() {
     unsafe {
         outb(PIC1_DATA, 0xFF);
         outb(PIC2_DATA, 0xFF);
+    }
+}
+
+fn set_irq_masked(line: u8, masked: bool) {
+    if line >= 16 {
+        return;
+    }
+
+    unsafe {
+        if line < 8 {
+            let bit = 1u8 << line;
+            let current = inb(PIC1_DATA);
+            let next = if masked {
+                current | bit
+            } else {
+                current & !bit
+            };
+            outb(PIC1_DATA, next);
+        } else {
+            let bit = 1u8 << (line - 8);
+            let current = inb(PIC2_DATA);
+            let next = if masked {
+                current | bit
+            } else {
+                current & !bit
+            };
+            outb(PIC2_DATA, next);
+        }
     }
 }
 
