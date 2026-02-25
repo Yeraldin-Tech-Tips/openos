@@ -3,11 +3,9 @@
 
 use core::arch::asm;
 
-use abi::ipc::{UiChannel, UiMessageHeader, UiMessageKind};
 use openos_syscall::{
     fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read,
-    input_subscribe, ipc_recv, ipc_send, net_connect, net_recv, net_send, net_socket, proc_exit,
-    proc_spawn, proc_wait, vm_map, vm_unmap,
+    input_subscribe, proc_exit, proc_spawn, proc_wait, vm_map, vm_unmap,
 };
 
 const GESTURE_HOME: u64 = 0;
@@ -328,16 +326,6 @@ fn enqueue_spawn(queue: &mut LaunchQueue, spawn_arg: u64) {
 }
 
 fn launch_app(spawn_arg: u64) -> bool {
-    let app_payload = app_payload(spawn_arg);
-    let launch_header = UiMessageHeader {
-        channel: UiChannel::AppLaunch,
-        kind: UiMessageKind::LaunchApp,
-        payload_len: app_payload.len() as u16,
-    };
-    if ipc_send(&launch_header, app_payload).code == 0 {
-        drain_one_ipc_message();
-    }
-
     let spawn_result = proc_spawn(spawn_arg);
     if spawn_result.code == 0 {
         let _ = fs_write(1, b"[openos-pid1] app launched\r\n");
@@ -345,25 +333,6 @@ fn launch_app(spawn_arg: u64) -> bool {
     } else {
         let _ = fs_write(1, b"[openos-pid1] app launch error\r\n");
         false
-    }
-}
-
-fn drain_one_ipc_message() {
-    let mut recv_header = UiMessageHeader {
-        channel: UiChannel::AppLaunch,
-        kind: UiMessageKind::LaunchApp,
-        payload_len: 0,
-    };
-    let mut recv_payload = [0u8; 32];
-    let _ = ipc_recv(&mut recv_header, &mut recv_payload);
-}
-
-fn app_payload(spawn_arg: u64) -> &'static [u8] {
-    match spawn_arg {
-        SPAWN_APP_SHELL => b"openos-shell",
-        SPAWN_APP_SETTINGS => b"openos-settings",
-        SPAWN_APP_FILES => b"openos-files",
-        _ => b"openos-unknown",
     }
 }
 
