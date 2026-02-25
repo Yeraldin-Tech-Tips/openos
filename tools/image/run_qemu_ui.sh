@@ -37,6 +37,8 @@ fi
 
 ACCEL="tcg"
 CPU_MODEL="qemu64"
+QEMU_MEM_MB="${OPENOS_QEMU_MEM_MB:-2048}"
+QEMU_CPUS="${OPENOS_QEMU_CPUS:-2}"
 if [[ -r /dev/kvm && -w /dev/kvm ]]; then
   ACCEL="kvm:tcg"
   CPU_MODEL="host"
@@ -53,8 +55,8 @@ trap cleanup EXIT
 if [[ -f "$USB_IMG" ]]; then
   qemu-system-x86_64 \
     -machine q35,accel="$ACCEL" \
-    -m 4096 \
-    -smp 4 \
+    -m "$QEMU_MEM_MB" \
+    -smp "$QEMU_CPUS" \
     -cpu "$CPU_MODEL" \
     -bios "$OVMF_CODE" \
     -drive format=raw,file="$USB_IMG" \
@@ -73,8 +75,8 @@ elif [[ -d "$FAT_DIR" ]]; then
 
   qemu-system-x86_64 \
     -machine q35,accel="$ACCEL" \
-    -m 4096 \
-    -smp 4 \
+    -m "$QEMU_MEM_MB" \
+    -smp "$QEMU_CPUS" \
     -cpu "$CPU_MODEL" \
     -bios "$OVMF_CODE" \
     -drive format=raw,file="$TMP_ESP_IMG" \
@@ -84,8 +86,8 @@ elif [[ -d "$FAT_DIR" ]]; then
 else
   qemu-system-x86_64 \
     -machine q35,accel="$ACCEL" \
-    -m 4096 \
-    -smp 4 \
+    -m "$QEMU_MEM_MB" \
+    -smp "$QEMU_CPUS" \
     -cpu "$CPU_MODEL" \
     -bios "$OVMF_CODE" \
     -cdrom "$ISO" \
