@@ -4,8 +4,8 @@
 use core::arch::asm;
 
 use openos_syscall::{
-    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read,
-    input_subscribe, proc_exit, proc_spawn, proc_wait, vm_map, vm_unmap,
+    fs_write, gfx_present, gfx_submit_scene, input_read, input_subscribe, proc_exit, proc_spawn,
+    proc_wait, vm_map, vm_unmap,
 };
 
 const GESTURE_HOME: u64 = 0;
@@ -234,8 +234,6 @@ fn run_launcher_loop() -> ! {
                 if launch_app(spawn_arg) {
                     active_children = 1;
                     history.on_launch(spawn_arg);
-                    log_file_prefix(b"/proc/apps", b"[openos-pid1] apps: ");
-                    log_file_prefix(b"/proc/launcher-history", b"[openos-pid1] launch-hist: ");
                 }
             }
         }
@@ -246,8 +244,6 @@ fn run_launcher_loop() -> ! {
             if wait_result.code == 0 {
                 active_children = active_children.saturating_sub(1);
                 let _ = fs_write(1, b"[openos-pid1] child reaped\r\n");
-                log_file_prefix(b"/proc/apps", b"[openos-pid1] apps: ");
-                log_file_prefix(b"/proc/launcher-history", b"[openos-pid1] launch-hist: ");
                 present_home_scene();
                 continue;
             }
@@ -434,22 +430,6 @@ fn present_scene(top_color: u32, bottom_color: u32, dock_color: u32, dock_height
     if submit.code == 0 {
         let _ = gfx_present();
     }
-}
-
-fn log_file_prefix(path: &[u8], prefix: &[u8]) {
-    let open_result = fs_open(path, 0);
-    if open_result.code != 0 {
-        return;
-    }
-
-    let fd = open_result.value;
-    let mut data = [0u8; 192];
-    let read_result = fs_read(fd, &mut data);
-    if read_result.code == 0 && read_result.value != 0 {
-        let _ = fs_write(1, prefix);
-        let _ = fs_write(1, &data[..read_result.value as usize]);
-    }
-    let _ = fs_close(fd);
 }
 
 fn idle_pause() {
