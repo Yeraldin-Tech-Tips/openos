@@ -45,8 +45,7 @@ static INPUT_STATE: IrqSafeLock<InputState> = IrqSafeLock::new(EMPTY_INPUT_STATE
 
 pub fn init() {
     INPUT_SUBSCRIBED.store(false, Ordering::Release);
-    let mut state = INPUT_STATE.lock();
-    *state = EMPTY_INPUT_STATE;
+    // State is already initialized at declaration time; explicit reset skipped.
 }
 
 pub fn subscribe(enable: bool) {

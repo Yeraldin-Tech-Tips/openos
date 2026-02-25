@@ -51,8 +51,7 @@ static NET_STATE: IrqSafeLock<NetState> = IrqSafeLock::new(NetState {
 });
 
 pub fn init() {
-    let mut state = NET_STATE.lock();
-    state.sockets = [EMPTY_SOCKET; MAX_SOCKETS];
+    // State is already initialized at declaration time; explicit reset skipped.
 }
 
 pub fn socket(pid: TaskId, domain: u64, kind: u64, _protocol: u64) -> Result<u64, NetError> {
