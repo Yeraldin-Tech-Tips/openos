@@ -292,13 +292,19 @@ fn register_user_task_locked(reg: TaskRegistration) -> Result<TaskId, RegisterTa
 
     let slot = find_registration_slot().ok_or(RegisterTaskError::TableFull)?;
     let count = TASK_COUNT.load(Ordering::Acquire);
-    let user_stack_top = reg
-        .context
+    let mut context = reg.context;
+    // Enforce SysV-compatible initial stack alignment for first user entry.
+    if (context.stack_pointer & 0xF) == 0 {
+        context.stack_pointer = context
+            .stack_pointer
+            .saturating_sub(user::USER_ENTRY_STACK_BIAS);
+    }
+    let user_stack_top = context
         .stack_pointer
         .saturating_add(user::USER_ENTRY_STACK_BIAS);
 
     let address_space = mm::map_user_task_image(
-        reg.context.instruction_pointer,
+        context.instruction_pointer,
         reg.entry_staging,
         reg.image_base,
         reg.image_size,
@@ -316,8 +322,8 @@ fn register_user_task_locked(reg: TaskRegistration) -> Result<TaskId, RegisterTa
             state: TaskState::Ready,
             address_space,
             exit_requested: false,
-            entry_point: reg.context.instruction_pointer,
-            context: reg.context,
+            entry_point: context.instruction_pointer,
+            context,
             image_base: reg.image_base,
             image_size: reg.image_size,
             segment_count: reg.segment_count,
