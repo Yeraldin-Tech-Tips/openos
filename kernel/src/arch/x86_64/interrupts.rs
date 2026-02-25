@@ -119,6 +119,19 @@ pub fn enable_timer_irq() {
     }
 }
 
+pub fn enable_input_irqs() {
+    unsafe {
+        let mut master_mask = inb(PIC1_DATA);
+        master_mask &= !((1 << 1) | (1 << 2));
+        master_mask |= 1 << 0;
+        let slave_mask = inb(PIC2_DATA) & !(1 << 4);
+        outb(PIC1_DATA, master_mask);
+        outb(PIC2_DATA, slave_mask);
+    }
+
+    serial::write_line("[openos-kernel] input irqs enabled");
+}
+
 pub fn disable_timer_irq() {
     unsafe {
         let master_mask = inb(PIC1_DATA) | 0x07;

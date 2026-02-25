@@ -55,10 +55,11 @@ static INT80_TRAP_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[no_mangle]
 pub extern "C" fn openos_syscall_int80_dispatch(frame: &mut Int80Frame) {
     let trap_count = INT80_TRAP_COUNT.fetch_add(1, Ordering::AcqRel) + 1;
-    // Defer timer until PID1 has submitted scene (~7 syscalls); timer return from
-    // userspace currently hangs, so enable only after launcher loop is active.
-    if trap_count == 7 {
-        crate::arch::x86_64::interrupts::enable_timer_irq();
+    if trap_count <= 2 {
+        crate::arch::x86_64::serial::write_hex_u64(
+            "[openos-kernel] int80.trap_count=",
+            trap_count as u64,
+        );
     }
 
     let result = dispatch(frame.rax as u16, frame.rdi, frame.rsi, frame.rdx, frame.r10);
