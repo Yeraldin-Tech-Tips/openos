@@ -3,6 +3,7 @@ use crate::arch::x86_64::tables::{USER_CODE_SELECTOR, USER_DATA_SELECTOR};
 pub const DEFAULT_USER_STACK_TOP: u64 = 0x0000_7FFF_FFFF_F000;
 pub const DEFAULT_USER_STACK_SIZE: usize = 1024 * 1024;
 pub const DEFAULT_USER_RFLAGS: u64 = 0x202;
+const USER_ENTRY_STACK_BIAS: u64 = 8;
 
 #[derive(Clone, Copy)]
 pub struct UserContext {
@@ -22,6 +23,8 @@ impl UserContext {
 }
 
 pub unsafe fn enter_user_mode(entry_virtual: u64, user_stack_top: u64, arg0: u64) -> ! {
+    // Align the initial user entry stack for SysV calls after iretq entry.
+    let entry_rsp = user_stack_top.saturating_sub(USER_ENTRY_STACK_BIAS);
     core::arch::asm!(
         "mov rdi, {arg0}",
         "push {user_ss}",
@@ -32,7 +35,7 @@ pub unsafe fn enter_user_mode(entry_virtual: u64, user_stack_top: u64, arg0: u64
         "push {user_rip}",
         "iretq",
         user_ss = in(reg) USER_DATA_SELECTOR as u64,
-        user_rsp = in(reg) user_stack_top,
+        user_rsp = in(reg) entry_rsp,
         user_cs = in(reg) USER_CODE_SELECTOR as u64,
         user_rip = in(reg) entry_virtual,
         arg0 = in(reg) arg0,
