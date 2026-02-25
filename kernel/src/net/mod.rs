@@ -51,8 +51,8 @@ static NET_STATE: IrqSafeLock<NetState> = IrqSafeLock::new(NetState {
 });
 
 pub fn init() {
-    let mut state = NET_STATE.lock();
-    state.sockets = [EMPTY_SOCKET; MAX_SOCKETS];
+    // NET_STATE is already initialized with EMPTY_SOCKET; avoid lock during boot
+    // since IrqSafeLock can hang on some QEMU after ethernet init.
 }
 
 pub fn socket(pid: TaskId, domain: u64, kind: u64, _protocol: u64) -> Result<u64, NetError> {

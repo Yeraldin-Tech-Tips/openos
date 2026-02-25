@@ -59,6 +59,10 @@ impl WifiRuntime {
 
 static WIFI_RUNTIME: IrqSafeLock<WifiRuntime> = IrqSafeLock::new(WifiRuntime::new());
 
+/// Probe result cache to avoid WIFI_RUNTIME.lock() in probe, which can hang on
+/// some QEMU configs (lock spin never completes).
+static mut WIFI_PROBE_CACHE: Option<AdapterResources> = None;
+
 pub struct IntelWifi;
 
 impl KernelDriver for IntelWifi {
@@ -68,10 +72,6 @@ impl KernelDriver for IntelWifi {
 
     fn probe(&self) -> bool {
         let adapter = scan_supported_adapter().and_then(map_adapter_resources);
-        let mut runtime = WIFI_RUNTIME.lock();
-        runtime.adapter = adapter;
-        runtime.initialized = false;
-        runtime.rx_len = 0;
 
         if let Some(resources) = adapter {
             serial::write_line("[openos-kernel] intel-wifi probe matched");
@@ -85,21 +85,31 @@ impl KernelDriver for IntelWifi {
             );
             serial::write_hex_u64("[openos-kernel] intel-wifi mmio.base=", resources.mmio_base);
             serial::write_hex_u64("[openos-kernel] intel-wifi mmio.len=", resources.mmio_len);
+            // Store in cache; avoid WIFI_RUNTIME.lock() which hangs on some QEMU.
+            unsafe {
+                WIFI_PROBE_CACHE = Some(resources);
+            }
             true
         } else {
+            unsafe {
+                WIFI_PROBE_CACHE = None;
+            }
             false
         }
     }
 
     fn init(&self) -> Result<(), DriverError> {
-        let mut runtime = WIFI_RUNTIME.lock();
-        let adapter = match runtime.adapter {
+        let adapter = unsafe { WIFI_PROBE_CACHE };
+        let adapter = match adapter {
             Some(resources) => resources,
             None => {
                 serial::write_line("[openos-kernel] intel-wifi init failed: no probed adapter");
                 return Err(DriverError::ProbeFailed);
             }
         };
+
+        let mut runtime = WIFI_RUNTIME.lock();
+        runtime.adapter = Some(adapter);
 
         if let Err(reason) = firmware_load_hook(adapter.device_id) {
             serial::write_line("[openos-kernel] intel-wifi firmware load failed");
