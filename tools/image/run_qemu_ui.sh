@@ -7,20 +7,31 @@ ISO="$ROOT_DIR/out/openos-live-x86_64.iso"
 FAT_DIR="$ROOT_DIR/out/efi-root"
 BIOS_DIR="$ROOT_DIR/bios"
 OVMF_CODE="$BIOS_DIR/OVMF_CODE.fd"
-SYSTEM_OVMF_CODE="/usr/share/OVMF/OVMF_CODE.fd"
+SYSTEM_OVMF_CANDIDATES=(
+  "/usr/share/OVMF/OVMF_CODE.fd"
+  "/usr/share/ovmf/OVMF.fd"
+  "/usr/share/ovmf/OVMF_CODE.fd"
+  "/usr/share/ovmf/OVMF_CODE_4M.fd"
+)
 export TMPDIR="${TMPDIR:-/tmp}"
 TMP_ESP_IMG=""
 
 mkdir -p "$BIOS_DIR"
 if [[ ! -f "$OVMF_CODE" ]]; then
-  if [[ -f "$SYSTEM_OVMF_CODE" ]]; then
-    cp "$SYSTEM_OVMF_CODE" "$OVMF_CODE"
-    echo "Saved firmware: $OVMF_CODE"
-  else
+  for candidate in "${SYSTEM_OVMF_CANDIDATES[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      cp "$candidate" "$OVMF_CODE"
+      echo "Saved firmware: $OVMF_CODE (from $candidate)"
+      break
+    fi
+  done
+  if [[ ! -f "$OVMF_CODE" ]]; then
     echo "Missing OVMF firmware."
-    echo "Expected one of:"
+    echo "Expected one of local/cache paths:"
     echo "  - $OVMF_CODE"
-    echo "  - $SYSTEM_OVMF_CODE"
+    for candidate in "${SYSTEM_OVMF_CANDIDATES[@]}"; do
+      echo "  - $candidate"
+    done
     exit 1
   fi
 fi

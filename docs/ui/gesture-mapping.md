@@ -7,6 +7,9 @@ Default keyboard mapping for iPadOS-like actions on laptops:
 - `Alt + Right`: App switcher next app
 - `Alt + Down`: Control Center
 - `Alt + Shift + Down`: Notification Center
+- `Alt + S`: Launch Shell
+- `Alt + E`: Launch Settings
+- `Alt + F`: Launch Files
 
 Keyboard home-screen interactions (implemented):
 
@@ -15,11 +18,13 @@ Keyboard home-screen interactions (implemented):
 - `Tab` / `Shift+Tab`: next/previous focus target
 - `Enter` / `Space`: activate focused widget/icon/control
 - `Esc`: Home
+- `Home`: Home
 
 Mouse interactions (implemented on PS/2 input path):
 
 - Mouse move: moves UI cursor
 - Left click: activates hovered widget/icon/control
+- Right click: Home
 - Press-hold + move on clock/match/weather widgets: drag widget placement prototype
 - Press-hold + move on dock icons: horizontal dock reorder prototype
 - Hover and press states render translucent feedback on interactive targets

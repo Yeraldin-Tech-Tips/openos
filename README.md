@@ -43,7 +43,7 @@ Boot status today:
 - Foreground app panels for shell/settings/files now include close/actions controls and live lifecycle + IPC status text
 - Hover and press feedback are now rendered for widgets, app icons, dock icons, and foreground panel controls
 - Widget drag (clock/match/weather) and dock icon reorder are now available as prototype interactions
-- `InputSubscribe`/`InputRead` now run through PS/2 IRQ1 keyboard + IRQ12 mouse input, including pointer motion, click, and drag actions
+- `InputSubscribe`/`InputRead` now run through PS/2 IRQ1 keyboard + IRQ12 mouse input, including pointer motion, click/drag, right-click Home, and keyboard app-launch shortcuts
 - PID1 launcher now keeps recent-app quick-switch history (left/right) and Home toggles between shell and last non-shell app
 - Scheduler now resolves spawn-from-current images by stable module source ID to avoid stale shared ELF staging pointers
 - Scheduler reserves PID 0 and PID 1 permanently; allocator wraparound skips both IDs so dynamic tasks always receive PID >= 2
@@ -68,7 +68,7 @@ Planned/scaffold:
 
 - Intel Ethernet hardware support is scaffold-only (`probe()` false, `init()` not-ready)
 - Intel Wi-Fi hardware support is scaffold-only (`probe()` false, `init()` unsupported)
-- HID driver stack hardware detection/init is scaffold-only (`probe()` false, `init()` not-ready)
+- HID driver stack now detects PS/2/USB controllers and routes keyboard/mouse events into the UI input pipeline
 - Full PCI/PS2/USB detection, BAR/resource mapping, and production runtime send/recv/input paths are tracked in `docs/hardware/driver-roadmap.md`
 
 ## Boot targets
@@ -93,7 +93,7 @@ Planned/scaffold:
 - `qemu-img` (raw USB image assembly)
 - `sbsigntool` and `openssl` (for Secure Boot signing)
 - `qemu-system-x86_64` (for local boot validation)
-- OVMF firmware at `bios/OVMF_CODE.fd` (auto-copied by QEMU scripts from `/usr/share/OVMF/OVMF_CODE.fd` when available)
+- OVMF firmware at `bios/OVMF_CODE.fd` (auto-copied by QEMU scripts from distro paths such as `/usr/share/OVMF/OVMF_CODE.fd` or `/usr/share/ovmf/OVMF.fd`)
 
 > Note: Build output directories (for example `target/`, `target-test/`, `.build/`, and `out/`) are generated artifacts and must not be committed to version control.
 

@@ -63,13 +63,13 @@ const NODES: [Node; 12] = [
         name: b"gesture-map",
         parent: Some(ETC_NODE),
         kind: NodeKind::StaticFile(
-            b"Alt+Up=Home\nAlt+Left=AppSwitcherLeft\nAlt+Right=AppSwitcherRight\nAlt+Down=ControlCenter\nAlt+Shift+Down=NotificationCenter\n",
+            b"Alt+Up=Home\nAlt+Left=AppSwitcherLeft\nAlt+Right=AppSwitcherRight\nAlt+Down=ControlCenter\nAlt+Shift+Down=NotificationCenter\nAlt+S=LaunchShell\nAlt+E=LaunchSettings\nAlt+F=LaunchFiles\nMouseRightClick=Home\n",
         ),
     },
     Node {
         name: b"boot-state",
         parent: Some(PROC_NODE),
-        kind: NodeKind::StaticFile(b"boot=ring3\nipc=on\ngfx=on\ninput=irq1\n"),
+        kind: NodeKind::StaticFile(b"boot=ring3\nipc=on\ngfx=on\ninput=irq1+irq12\n"),
     },
     Node {
         name: b"self",

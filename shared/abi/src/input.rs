@@ -49,6 +49,21 @@ pub const DEFAULT_BINDINGS: &[KeyboardBinding] = &[
         keycode: 0x51,
         action: GestureAction::NotificationCenter,
     },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x16,
+        action: GestureAction::LaunchShell,
+    },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x08,
+        action: GestureAction::LaunchSettings,
+    },
+    KeyboardBinding {
+        modifier_mask: MOD_ALT,
+        keycode: 0x09,
+        action: GestureAction::LaunchFiles,
+    },
 ];
 
 #[cfg(test)]
@@ -90,7 +105,7 @@ mod tests {
 
     #[test]
     fn default_bindings_count() {
-        assert_eq!(DEFAULT_BINDINGS.len(), 5);
+        assert_eq!(DEFAULT_BINDINGS.len(), 8);
     }
 
     #[test]
@@ -114,6 +129,24 @@ mod tests {
         let binding = &DEFAULT_BINDINGS[4];
         assert_eq!(binding.modifier_mask, MOD_ALT | MOD_SHIFT);
         assert_eq!(binding.action, GestureAction::NotificationCenter);
+    }
+
+    #[test]
+    fn default_bindings_include_app_launch_shortcuts() {
+        let shell = &DEFAULT_BINDINGS[5];
+        assert_eq!(shell.modifier_mask, MOD_ALT);
+        assert_eq!(shell.keycode, 0x16);
+        assert_eq!(shell.action, GestureAction::LaunchShell);
+
+        let settings = &DEFAULT_BINDINGS[6];
+        assert_eq!(settings.modifier_mask, MOD_ALT);
+        assert_eq!(settings.keycode, 0x08);
+        assert_eq!(settings.action, GestureAction::LaunchSettings);
+
+        let files = &DEFAULT_BINDINGS[7];
+        assert_eq!(files.modifier_mask, MOD_ALT);
+        assert_eq!(files.keycode, 0x09);
+        assert_eq!(files.action, GestureAction::LaunchFiles);
     }
 
     #[test]

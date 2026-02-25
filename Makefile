@@ -1,4 +1,4 @@
-.PHONY: build image usb-image qemu fmt clippy test check
+.PHONY: build image usb-image qemu qemu-ui fmt clippy test check
 
 build:
 	./tools/image/build.sh
@@ -11,6 +11,9 @@ usb-image:
 
 qemu:
 	./tools/image/run_qemu.sh
+
+qemu-ui:
+	./tools/image/run_qemu_ui.sh
 
 fmt:
 	cargo fmt --all

@@ -23,6 +23,7 @@ struct InputState {
     mouse_packet: [u8; MOUSE_PACKET_SIZE],
     mouse_packet_index: usize,
     mouse_left_down: bool,
+    mouse_right_down: bool,
 }
 
 const EMPTY_INPUT_STATE: InputState = InputState {
@@ -35,6 +36,7 @@ const EMPTY_INPUT_STATE: InputState = InputState {
     mouse_packet: [0; MOUSE_PACKET_SIZE],
     mouse_packet_index: 0,
     mouse_left_down: false,
+    mouse_right_down: false,
 };
 
 static INPUT_STATE: IrqSafeLock<InputState> = IrqSafeLock::new(EMPTY_INPUT_STATE);
@@ -89,7 +91,8 @@ pub fn on_ps2_scancode(byte: u8) {
 }
 
 pub fn on_ps2_mouse_byte(byte: u8) {
-    let mut maybe_action = None;
+    let mut left_action = None;
+    let mut right_pressed = false;
     let mut motion = None;
     {
         let mut state = INPUT_STATE.lock();
@@ -126,16 +129,25 @@ pub fn on_ps2_mouse_byte(byte: u8) {
         let left_down = (flags & 0x01) != 0;
         if left_down != state.mouse_left_down {
             state.mouse_left_down = left_down;
-            maybe_action = crate::ui::compositor::set_pointer_button(left_down)
+            left_action = crate::ui::compositor::set_pointer_button(left_down)
                 .ok()
                 .flatten();
+        }
+
+        let right_down = (flags & 0x02) != 0;
+        if right_down != state.mouse_right_down {
+            state.mouse_right_down = right_down;
+            right_pressed = right_down;
         }
     }
 
     if let Some((dx, dy)) = motion {
         let _ = crate::ui::compositor::move_pointer(dx, dy);
     }
-    if let Some(action) = maybe_action {
+    if right_pressed {
+        dispatch_action(GestureAction::Home);
+    }
+    if let Some(action) = left_action {
         dispatch_action(action);
     }
 }
@@ -174,6 +186,7 @@ fn handle_direct_key(code: u8, extended: bool, modifier_state: u32) -> Option<Ge
                 let _ = crate::ui::compositor::focus_next();
                 return None;
             }
+            0x47 => return Some(GestureAction::Home),
             _ => {}
         }
     }
@@ -229,15 +242,21 @@ fn update_modifier(state: &mut InputState, code: u8, is_release: bool) -> bool {
 }
 
 fn ps2_to_hid_usage(code: u8, extended: bool) -> Option<u16> {
-    if !extended {
-        return None;
+    if extended {
+        return match code {
+            0x48 => Some(0x52),
+            0x50 => Some(0x51),
+            0x4B => Some(0x50),
+            0x4D => Some(0x4F),
+            _ => None,
+        };
     }
 
+    // Minimal non-extended set used by default keyboard launch bindings.
     match code {
-        0x48 => Some(0x52),
-        0x50 => Some(0x51),
-        0x4B => Some(0x50),
-        0x4D => Some(0x4F),
+        0x1F => Some(0x16), // S
+        0x12 => Some(0x08), // E
+        0x21 => Some(0x09), // F
         _ => None,
     }
 }
