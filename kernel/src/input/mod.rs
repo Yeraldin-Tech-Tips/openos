@@ -95,10 +95,9 @@ pub fn on_ps2_scancode(byte: u8) {
 pub fn on_ps2_mouse_byte(byte: u8) {
     let mut motion = None;
     let mut left_transition = None;
-    let mut left_is_down = false;
     let mut right_pressed = false;
     let mut middle_pressed = false;
-    {
+    let left_is_down = {
         let mut state = INPUT_STATE.lock();
         if byte == 0xFA || byte == 0xAA {
             return;
@@ -135,7 +134,6 @@ pub fn on_ps2_mouse_byte(byte: u8) {
             state.mouse_left_down = left_down;
             left_transition = Some(left_down);
         }
-        left_is_down = state.mouse_left_down;
 
         let right_down = (flags & 0x02) != 0;
         if right_down != state.mouse_right_down {
@@ -148,7 +146,8 @@ pub fn on_ps2_mouse_byte(byte: u8) {
             middle_pressed = middle_down;
             state.mouse_middle_down = middle_down;
         }
-    }
+        state.mouse_left_down
+    };
 
     if let Some((dx, dy)) = motion {
         let _ = crate::ui::compositor::move_pointer(dx, dy);
