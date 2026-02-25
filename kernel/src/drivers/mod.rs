@@ -32,30 +32,40 @@ pub fn init() {
         &hid::HidStack,
     ];
 
-    for driver in drivers {
-        let detected = driver.probe();
-        if detected {
+    // Probe all drivers first. Ethernet init does MMIO (NIC reset) which can
+    // affect PCI config space on some QEMU/hardware; probing wifi/HID first
+    // avoids hanging on subsequent PCI scans.
+    let mut probed: [bool; 3] = [false; 3];
+    for (i, driver) in drivers.iter().enumerate() {
+        probed[i] = driver.probe();
+        if probed[i] {
             serial::write_line("[openos-kernel] driver.probe ok");
             serial::write_line(driver.name());
-            match driver.init() {
-                Ok(()) => {
-                    serial::write_line("[openos-kernel] driver.init ok");
-                    serial::write_line(driver.name());
-                }
-                Err(error) => {
-                    serial::write_line("[openos-kernel] driver.init failed");
-                    serial::write_line(driver.name());
-                    serial::write_line(match error {
-                        DriverError::ProbeFailed => "ProbeFailed",
-                        DriverError::InitFailed => "InitFailed",
-                        DriverError::Unsupported => "Unsupported",
-                        DriverError::NotReady => "NotReady",
-                    });
-                }
-            }
         } else {
             serial::write_line("[openos-kernel] driver.probe failed");
             serial::write_line(driver.name());
+        }
+    }
+
+    for (i, driver) in drivers.iter().enumerate() {
+        if !probed[i] {
+            continue;
+        }
+        match driver.init() {
+            Ok(()) => {
+                serial::write_line("[openos-kernel] driver.init ok");
+                serial::write_line(driver.name());
+            }
+            Err(error) => {
+                serial::write_line("[openos-kernel] driver.init failed");
+                serial::write_line(driver.name());
+                serial::write_line(match error {
+                    DriverError::ProbeFailed => "ProbeFailed",
+                    DriverError::InitFailed => "InitFailed",
+                    DriverError::Unsupported => "Unsupported",
+                    DriverError::NotReady => "NotReady",
+                });
+            }
         }
     }
 }
