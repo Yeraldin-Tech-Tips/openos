@@ -18,7 +18,7 @@ impl IrqState {
                 "pop {}",
                 "cli",
                 out(reg) rflags,
-                options()
+                options(nomem, preserves_flags)
             );
         }
         Self {
