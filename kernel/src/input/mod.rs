@@ -2,8 +2,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use abi::input::{GestureAction, DEFAULT_BINDINGS};
 
-use crate::sync::IrqSafeLock;
-
 const INPUT_QUEUE_CAPACITY: usize = 32;
 const MOUSE_PACKET_SIZE: usize = 3;
 const MOD_ALT: u32 = 0b0001;
@@ -41,11 +39,13 @@ const EMPTY_INPUT_STATE: InputState = InputState {
     mouse_middle_down: false,
 };
 
-static INPUT_STATE: IrqSafeLock<InputState> = IrqSafeLock::new(EMPTY_INPUT_STATE);
+static mut INPUT_STATE: InputState = EMPTY_INPUT_STATE;
 
 pub fn init() {
     INPUT_SUBSCRIBED.store(false, Ordering::Release);
-    // State is already initialized at declaration time; explicit reset skipped.
+    unsafe {
+        INPUT_STATE = EMPTY_INPUT_STATE;
+    }
 }
 
 pub fn subscribe(enable: bool) {
@@ -53,36 +53,37 @@ pub fn subscribe(enable: bool) {
 }
 
 pub fn read_action() -> Option<GestureAction> {
-    let mut state = INPUT_STATE.lock();
-    pop_action(&mut state)
+    unsafe { pop_action(&mut INPUT_STATE) }
 }
 
 pub fn on_ps2_scancode(byte: u8) {
     let action = {
-        let mut state = INPUT_STATE.lock();
-        if byte == 0xE0 {
-            state.extended_prefix = true;
-            return;
-        }
-
-        let extended = state.extended_prefix;
-        state.extended_prefix = false;
-
-        let is_release = (byte & 0x80) != 0;
-        let code = byte & 0x7F;
-
-        if update_modifier(&mut state, code, is_release) || is_release {
-            return;
-        }
-
-        let modifier_state = state.modifier_state;
-        if let Some(action) = handle_direct_key(code, extended, modifier_state) {
-            Some(action)
-        } else {
-            let Some(keycode) = ps2_to_hid_usage(code, extended) else {
+        unsafe {
+            let state = &mut INPUT_STATE;
+            if byte == 0xE0 {
+                state.extended_prefix = true;
                 return;
-            };
-            select_action_for_key(keycode, modifier_state)
+            }
+
+            let extended = state.extended_prefix;
+            state.extended_prefix = false;
+
+            let is_release = (byte & 0x80) != 0;
+            let code = byte & 0x7F;
+
+            if update_modifier(state, code, is_release) || is_release {
+                return;
+            }
+
+            let modifier_state = state.modifier_state;
+            if let Some(action) = handle_direct_key(code, extended, modifier_state) {
+                Some(action)
+            } else {
+                let Some(keycode) = ps2_to_hid_usage(code, extended) else {
+                    return;
+                };
+                select_action_for_key(keycode, modifier_state)
+            }
         }
     };
 
@@ -97,55 +98,57 @@ pub fn on_ps2_mouse_byte(byte: u8) {
     let mut right_pressed = false;
     let mut middle_pressed = false;
     let left_is_down = {
-        let mut state = INPUT_STATE.lock();
-        if byte == 0xFA || byte == 0xAA {
-            return;
-        }
+        unsafe {
+            let state = &mut INPUT_STATE;
+            if byte == 0xFA || byte == 0xAA {
+                return;
+            }
 
-        if state.mouse_packet_index == 0 && (byte & 0x08) == 0 {
-            return;
-        }
+            if state.mouse_packet_index == 0 && (byte & 0x08) == 0 {
+                return;
+            }
 
-        let idx = state.mouse_packet_index;
-        state.mouse_packet[idx] = byte;
-        state.mouse_packet_index += 1;
-        if state.mouse_packet_index < MOUSE_PACKET_SIZE {
-            return;
-        }
-        state.mouse_packet_index = 0;
+            let idx = state.mouse_packet_index;
+            state.mouse_packet[idx] = byte;
+            state.mouse_packet_index += 1;
+            if state.mouse_packet_index < MOUSE_PACKET_SIZE {
+                return;
+            }
+            state.mouse_packet_index = 0;
 
-        let flags = state.mouse_packet[0];
-        let dx_raw = state.mouse_packet[1];
-        let dy_raw = state.mouse_packet[2];
+            let flags = state.mouse_packet[0];
+            let dx_raw = state.mouse_packet[1];
+            let dy_raw = state.mouse_packet[2];
 
-        if (flags & 0x40) != 0 || (flags & 0x80) != 0 {
-            return;
-        }
+            if (flags & 0x40) != 0 || (flags & 0x80) != 0 {
+                return;
+            }
 
-        let dx = decode_mouse_delta(dx_raw, (flags & 0x10) != 0) as i32;
-        let dy = decode_mouse_delta(dy_raw, (flags & 0x20) != 0) as i32;
-        if dx != 0 || dy != 0 {
-            motion = Some((dx, -dy));
-        }
+            let dx = decode_mouse_delta(dx_raw, (flags & 0x10) != 0) as i32;
+            let dy = decode_mouse_delta(dy_raw, (flags & 0x20) != 0) as i32;
+            if dx != 0 || dy != 0 {
+                motion = Some((dx, -dy));
+            }
 
-        let left_down = (flags & 0x01) != 0;
-        if left_down != state.mouse_left_down {
-            state.mouse_left_down = left_down;
-            left_transition = Some(left_down);
-        }
+            let left_down = (flags & 0x01) != 0;
+            if left_down != state.mouse_left_down {
+                state.mouse_left_down = left_down;
+                left_transition = Some(left_down);
+            }
 
-        let right_down = (flags & 0x02) != 0;
-        if right_down != state.mouse_right_down {
-            right_pressed = right_down;
-            state.mouse_right_down = right_down;
-        }
+            let right_down = (flags & 0x02) != 0;
+            if right_down != state.mouse_right_down {
+                right_pressed = right_down;
+                state.mouse_right_down = right_down;
+            }
 
-        let middle_down = (flags & 0x04) != 0;
-        if middle_down != state.mouse_middle_down {
-            middle_pressed = middle_down;
-            state.mouse_middle_down = middle_down;
+            let middle_down = (flags & 0x04) != 0;
+            if middle_down != state.mouse_middle_down {
+                middle_pressed = middle_down;
+                state.mouse_middle_down = middle_down;
+            }
+            state.mouse_left_down
         }
-        state.mouse_left_down
     };
 
     if let Some((dx, dy)) = motion {
@@ -255,8 +258,9 @@ fn dispatch_action(action: GestureAction) {
     }
 
     if INPUT_SUBSCRIBED.load(Ordering::Acquire) {
-        let mut state = INPUT_STATE.lock();
-        push_action(&mut state, action);
+        unsafe {
+            push_action(&mut INPUT_STATE, action);
+        }
     }
 }
 
