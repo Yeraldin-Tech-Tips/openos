@@ -5,9 +5,8 @@ use core::arch::asm;
 
 use abi::ipc::{UiChannel, UiMessageHeader, UiMessageKind};
 use openos_syscall::{
-    fs_close, fs_open, fs_read, fs_write, gfx_present, gfx_submit_scene, input_read,
-    input_subscribe, ipc_send, net_connect, net_recv, net_send, net_socket, proc_exit, vm_map,
-    vm_unmap,
+    fs_write, gfx_present, gfx_submit_scene, input_read, input_subscribe, ipc_send, net_connect,
+    net_recv, net_send, net_socket, proc_exit, vm_map, vm_unmap,
 };
 
 const GESTURE_HOME: u64 = 0;
@@ -24,11 +23,7 @@ pub extern "sysv64" fn _start(_task_id: u64) -> ! {
     let _ = fs_write(1, b"[openos-app-shell] started\r\n");
     let _ = input_subscribe(true);
 
-    log_file_prefix(b"/proc/apps", b"[openos-app-shell] apps: ");
-    log_file_prefix(
-        b"/proc/launcher-history",
-        b"[openos-app-shell] launch-hist: ",
-    );
+    let _ = fs_write(1, b"[openos-app-shell] diagnostics minimized\r\n");
 
     let mut mapped_addr = 0u64;
     let vm_result = vm_map(0, 4096, 1);
@@ -173,22 +168,6 @@ fn send_ipc(channel: UiChannel, kind: UiMessageKind, payload: &[u8]) {
     } else {
         let _ = fs_write(1, b"[openos-app-shell] ipc send error\r\n");
     }
-}
-
-fn log_file_prefix(path: &[u8], prefix: &[u8]) {
-    let open_res = fs_open(path, 0);
-    if open_res.code != 0 {
-        return;
-    }
-
-    let fd = open_res.value;
-    let mut buf = [0u8; 192];
-    let read_res = fs_read(fd, &mut buf);
-    if read_res.code == 0 && read_res.value != 0 {
-        let _ = fs_write(1, prefix);
-        let _ = fs_write(1, &buf[..read_res.value as usize]);
-    }
-    let _ = fs_close(fd);
 }
 
 fn idle_pause() {
