@@ -26,37 +26,35 @@ pub enum DriverError {
 }
 
 pub fn init() {
-    let drivers: [&dyn KernelDriver; 3] = [
-        &hid::HidStack,
-        &wifi_intel::IntelWifi,
-        &ethernet_intel::IntelEthernet,
-    ];
+    init_driver(&hid::HidStack);
+    init_driver(&wifi_intel::IntelWifi);
+    init_driver(&ethernet_intel::IntelEthernet);
+}
 
-    for driver in drivers {
-        let detected = driver.probe();
-        if detected {
-            serial::write_line("[openos-kernel] driver.probe ok");
-            serial::write_line(driver.name());
-            match driver.init() {
-                Ok(()) => {
-                    serial::write_line("[openos-kernel] driver.init ok");
-                    serial::write_line(driver.name());
-                }
-                Err(error) => {
-                    serial::write_line("[openos-kernel] driver.init failed");
-                    serial::write_line(driver.name());
-                    serial::write_line(match error {
-                        DriverError::ProbeFailed => "ProbeFailed",
-                        DriverError::InitFailed => "InitFailed",
-                        DriverError::Unsupported => "Unsupported",
-                        DriverError::NotReady => "NotReady",
-                    });
-                }
+fn init_driver(driver: &dyn KernelDriver) {
+    let detected = driver.probe();
+    if detected {
+        serial::write_line("[openos-kernel] driver.probe ok");
+        serial::write_line(driver.name());
+        match driver.init() {
+            Ok(()) => {
+                serial::write_line("[openos-kernel] driver.init ok");
+                serial::write_line(driver.name());
             }
-        } else {
-            serial::write_line("[openos-kernel] driver.probe failed");
-            serial::write_line(driver.name());
+            Err(error) => {
+                serial::write_line("[openos-kernel] driver.init failed");
+                serial::write_line(driver.name());
+                serial::write_line(match error {
+                    DriverError::ProbeFailed => "ProbeFailed",
+                    DriverError::InitFailed => "InitFailed",
+                    DriverError::Unsupported => "Unsupported",
+                    DriverError::NotReady => "NotReady",
+                });
+            }
         }
+    } else {
+        serial::write_line("[openos-kernel] driver.probe failed");
+        serial::write_line(driver.name());
     }
 }
 
