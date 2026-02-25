@@ -542,6 +542,8 @@ fn present_scene(top_color: u32, bottom_color: u32, dock_color: u32, dock_height
     }
 }
 
+static mut LOG_READ_BUF: [u8; 192] = [0; 192];
+
 fn log_file_prefix(path: &[u8], prefix: &[u8]) {
     let open_result = fs_open(path, 0);
     if open_result.code != 0 {
@@ -549,11 +551,10 @@ fn log_file_prefix(path: &[u8], prefix: &[u8]) {
     }
 
     let fd = open_result.value;
-    let mut data = [0u8; 192];
-    let read_result = fs_read(fd, &mut data);
+    let read_result = unsafe { fs_read(fd, &mut LOG_READ_BUF) };
     if read_result.code == 0 && read_result.value != 0 {
         let _ = fs_write(1, prefix);
-        let _ = fs_write(1, &data[..read_result.value as usize]);
+        let _ = fs_write(1, unsafe { &LOG_READ_BUF[..read_result.value as usize] });
     }
     let _ = fs_close(fd);
 }
