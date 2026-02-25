@@ -170,6 +170,8 @@ fn scan_supported_adapter() -> Option<PciLocation> {
     // Limit to bus 0 for boot performance; QEMU and most systems put devices on bus 0
     for bus in 0u16..=0 {
         for device in 0u8..32 {
+            serial::write_hex_u64("[openos-kernel] intel-wifi scan.bus=", bus as u64);
+            serial::write_hex_u64("[openos-kernel] intel-wifi scan.device=", device as u64);
             let location = PciLocation {
                 bus: bus as u8,
                 device,
@@ -177,6 +179,7 @@ fn scan_supported_adapter() -> Option<PciLocation> {
             };
 
             let vendor_device = pci_config_read_u32(location, 0x00);
+            serial::write_hex_u64("[openos-kernel] intel-wifi scan.id=", vendor_device as u64);
             if vendor_device == 0xFFFF_FFFF {
                 continue;
             }
