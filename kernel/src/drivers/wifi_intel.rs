@@ -66,6 +66,7 @@ impl KernelDriver for IntelWifi {
     }
 
     fn probe(&self) -> bool {
+        serial::write_line("[openos-kernel] intel-wifi probe begin");
         let adapter = scan_supported_adapter().and_then(map_adapter_resources);
         let mut runtime = WIFI_RUNTIME.lock();
         runtime.adapter = adapter;
@@ -86,6 +87,7 @@ impl KernelDriver for IntelWifi {
             serial::write_hex_u64("[openos-kernel] intel-wifi mmio.len=", resources.mmio_len);
             true
         } else {
+            serial::write_line("[openos-kernel] intel-wifi probe no supported adapter");
             false
         }
     }
