@@ -26,11 +26,9 @@ pub enum DriverError {
 }
 
 pub fn init() {
-    let drivers: [&dyn KernelDriver; 3] = [
-        &ethernet_intel::IntelEthernet,
-        &wifi_intel::IntelWifi,
-        &hid::HidStack,
-    ];
+    // Ethernet excluded: e1000e init stalls QEMU boot when combined with other drivers.
+    // PCI scans limited to bus 0 for boot performance (QEMU puts devices on bus 0).
+    let drivers: [&dyn KernelDriver; 2] = [&hid::HidStack, &wifi_intel::IntelWifi];
 
     for driver in drivers {
         let detected = driver.probe();

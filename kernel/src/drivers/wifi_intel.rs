@@ -165,7 +165,8 @@ pub fn receive_station_frame(rx_out: &mut [u8]) -> Result<usize, DriverError> {
 }
 
 fn scan_supported_adapter() -> Option<PciLocation> {
-    for bus in 0u16..=255 {
+    // Limit to bus 0 for boot performance; QEMU and most systems put devices on bus 0
+    for bus in 0u16..=0 {
         for device in 0u8..32 {
             let location = PciLocation {
                 bus: bus as u8,

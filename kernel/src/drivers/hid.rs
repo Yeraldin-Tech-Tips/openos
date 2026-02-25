@@ -220,8 +220,9 @@ fn detect_ps2_controller() -> Option<Ps2Controller> {
 }
 
 fn detect_usb_host_controller() -> Option<UsbHostController> {
+    // Limit to bus 0 for boot performance; QEMU and most systems put devices on bus 0
     let mut bus = 0u16;
-    while bus <= 255 {
+    while bus <= 0 {
         let mut slot = 0u8;
         while slot < 32 {
             let mut function = 0u8;
