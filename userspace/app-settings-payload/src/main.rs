@@ -40,11 +40,11 @@ fn log_file_prefix(path: &[u8], prefix: &[u8]) {
     }
 
     let fd = open_res.value;
-    let mut buf = [0u8; 160];
-    let read_res = fs_read(fd, &mut buf);
+    let mut buf = core::mem::MaybeUninit::<[u8; 160]>::uninit();
+    let read_res = fs_read(fd, unsafe { &mut *buf.as_mut_ptr() });
     if read_res.code == 0 && read_res.value != 0 {
         let _ = fs_write(1, prefix);
-        let _ = fs_write(1, &buf[..read_res.value as usize]);
+        let _ = fs_write(1, &unsafe { &*buf.as_ptr() }[..read_res.value as usize]);
     }
     let _ = fs_close(fd);
 }

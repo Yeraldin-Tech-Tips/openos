@@ -218,9 +218,12 @@ fn boot_smoke_checks() {
         if connect_res.code == 0 {
             let send_res = net_send(sock, b"ping");
             if send_res.code == 0 {
-                let mut net_buf = [0u8; 8];
-                let recv_res = net_recv(sock, &mut net_buf);
-                if recv_res.code == 0 && recv_res.value as usize == 4 && &net_buf[..4] == b"ping" {
+                let mut net_buf = core::mem::MaybeUninit::<[u8; 8]>::uninit();
+                let recv_res = net_recv(sock, unsafe { &mut *net_buf.as_mut_ptr() });
+                if recv_res.code == 0
+                    && recv_res.value as usize == 4
+                    && unsafe { &*net_buf.as_ptr() }[..4] == b"ping"[..]
+                {
                     let _ = fs_write(1, b"[openos-pid1] net loopback ok\r\n");
                 } else {
                     let _ = fs_write(1, b"[openos-pid1] net recv error\r\n");
@@ -269,13 +272,13 @@ fn boot_smoke_checks() {
         kind: UiMessageKind::LaunchApp,
         payload_len: 0,
     };
-    let mut recv_payload = [0u8; 64];
-    let recv_result = ipc_recv(&mut recv_header, &mut recv_payload);
+    let mut recv_payload = core::mem::MaybeUninit::<[u8; 64]>::uninit();
+    let recv_result = ipc_recv(&mut recv_header, unsafe { &mut *recv_payload.as_mut_ptr() });
     if recv_result.code == 0
         && recv_result.value as usize == launch_payload.len()
         && recv_header.channel == UiChannel::ShellLifecycle
         && recv_header.kind == UiMessageKind::LaunchApp
-        && &recv_payload[..launch_payload.len()] == launch_payload
+        && unsafe { &*recv_payload.as_ptr() }[..launch_payload.len()] == launch_payload[..]
     {
         let _ = fs_write(1, b"[openos-pid1] ipc loopback ok\r\n");
     } else {
@@ -429,8 +432,8 @@ fn drain_one_ipc_message() {
         kind: UiMessageKind::LaunchApp,
         payload_len: 0,
     };
-    let mut recv_payload = [0u8; 32];
-    let _ = ipc_recv(&mut recv_header, &mut recv_payload);
+    let mut recv_payload = core::mem::MaybeUninit::<[u8; 32]>::uninit();
+    let _ = ipc_recv(&mut recv_header, unsafe { &mut *recv_payload.as_mut_ptr() });
 }
 
 fn app_payload(spawn_arg: u64) -> &'static [u8] {
@@ -549,11 +552,12 @@ fn log_file_prefix(path: &[u8], prefix: &[u8]) {
     }
 
     let fd = open_result.value;
-    let mut data = [0u8; 192];
-    let read_result = fs_read(fd, &mut data);
+    let mut data = core::mem::MaybeUninit::<[u8; 192]>::uninit();
+    let read_result = fs_read(fd, unsafe { &mut *data.as_mut_ptr() });
     if read_result.code == 0 && read_result.value != 0 {
+        let buf = unsafe { data.assume_init() };
         let _ = fs_write(1, prefix);
-        let _ = fs_write(1, &data[..read_result.value as usize]);
+        let _ = fs_write(1, &buf[..read_result.value as usize]);
     }
     let _ = fs_close(fd);
 }

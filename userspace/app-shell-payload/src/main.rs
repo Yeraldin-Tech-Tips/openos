@@ -153,9 +153,10 @@ fn run_loopback_ping() {
         return;
     }
 
-    let mut recv_buf = [0u8; 24];
-    let recv = net_recv(sock, &mut recv_buf);
-    if recv.code == 0 && recv.value as usize == 15 && &recv_buf[..15] == b"shell-heartbeat" {
+    let mut recv_buf = core::mem::MaybeUninit::<[u8; 24]>::uninit();
+    let recv = net_recv(sock, unsafe { &mut *recv_buf.as_mut_ptr() });
+    if recv.code == 0 && recv.value as usize == 15
+        && unsafe { &*recv_buf.as_ptr() }[..15] == b"shell-heartbeat"[..] {
         let _ = fs_write(1, b"[openos-app-shell] net ok\r\n");
     }
 }
@@ -182,11 +183,11 @@ fn log_file_prefix(path: &[u8], prefix: &[u8]) {
     }
 
     let fd = open_res.value;
-    let mut buf = [0u8; 192];
-    let read_res = fs_read(fd, &mut buf);
+    let mut buf = core::mem::MaybeUninit::<[u8; 192]>::uninit();
+    let read_res = fs_read(fd, unsafe { &mut *buf.as_mut_ptr() });
     if read_res.code == 0 && read_res.value != 0 {
         let _ = fs_write(1, prefix);
-        let _ = fs_write(1, &buf[..read_res.value as usize]);
+        let _ = fs_write(1, &unsafe { &*buf.as_ptr() }[..read_res.value as usize]);
     }
     let _ = fs_close(fd);
 }
