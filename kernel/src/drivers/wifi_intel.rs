@@ -66,7 +66,6 @@ impl KernelDriver for IntelWifi {
     }
 
     fn probe(&self) -> bool {
-        serial::write_line("[openos-kernel] intel-wifi probe begin");
         let adapter = scan_supported_adapter().and_then(map_adapter_resources);
         let mut runtime = WIFI_RUNTIME.lock();
         runtime.adapter = adapter;
@@ -87,7 +86,6 @@ impl KernelDriver for IntelWifi {
             serial::write_hex_u64("[openos-kernel] intel-wifi mmio.len=", resources.mmio_len);
             true
         } else {
-            serial::write_line("[openos-kernel] intel-wifi probe no supported adapter");
             false
         }
     }
@@ -170,8 +168,6 @@ fn scan_supported_adapter() -> Option<PciLocation> {
     // Limit to bus 0 for boot performance; QEMU and most systems put devices on bus 0
     for bus in 0u16..=0 {
         for device in 0u8..32 {
-            serial::write_hex_u64("[openos-kernel] intel-wifi scan.bus=", bus as u64);
-            serial::write_hex_u64("[openos-kernel] intel-wifi scan.device=", device as u64);
             let location = PciLocation {
                 bus: bus as u8,
                 device,
@@ -179,7 +175,6 @@ fn scan_supported_adapter() -> Option<PciLocation> {
             };
 
             let vendor_device = pci_config_read_u32(location, 0x00);
-            serial::write_hex_u64("[openos-kernel] intel-wifi scan.id=", vendor_device as u64);
             if vendor_device == 0xFFFF_FFFF {
                 continue;
             }

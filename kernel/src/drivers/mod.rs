@@ -26,9 +26,10 @@ pub enum DriverError {
 }
 
 pub fn init() {
+    // Keep boot-time driver init focused on input readiness; ethernet bring-up
+    // is deferred because its current scaffold can stall this emulation path.
     init_driver(&hid::HidStack);
     init_driver(&wifi_intel::IntelWifi);
-    init_driver(&ethernet_intel::IntelEthernet);
 }
 
 fn init_driver(driver: &dyn KernelDriver) {
