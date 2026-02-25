@@ -557,7 +557,6 @@ pub fn dispatch_task(pid: TaskId) -> Result<(), DispatchTaskError> {
 
     if let Some((pid_raw, address_space, instruction_pointer, stack_pointer)) = dispatch_context {
         drop(_sched_guard);
-        interrupts::enable_input_irqs();
 
         unsafe {
             run_user_entry(pid_raw, address_space, instruction_pointer, stack_pointer);
