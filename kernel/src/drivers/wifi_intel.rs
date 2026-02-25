@@ -11,6 +11,10 @@ const PCI_CLASS_OFFSET: u8 = 0x08;
 const PCI_COMMAND_IO_SPACE: u16 = 1 << 0;
 const PCI_COMMAND_MEM_SPACE: u16 = 1 << 1;
 const PCI_COMMAND_BUS_MASTER: u16 = 1 << 2;
+// Keep probe latency bounded during early boot; the QEMU bring-up path uses bus 0.
+const PCI_SCAN_MAX_BUS: u16 = 0;
+// Wi-Fi hardware init is non-essential for GUI/input bring-up and can stall boot in emulation.
+const ENABLE_WIFI_PROBE: bool = false;
 
 const RX_BUFFER_CAPACITY: usize = 2048;
 
@@ -66,6 +70,15 @@ impl KernelDriver for IntelWifi {
     }
 
     fn probe(&self) -> bool {
+        if !ENABLE_WIFI_PROBE {
+            let mut runtime = WIFI_RUNTIME.lock();
+            runtime.adapter = None;
+            runtime.initialized = false;
+            runtime.rx_len = 0;
+            serial::write_line("[openos-kernel] intel-wifi probe skipped");
+            return false;
+        }
+
         let adapter = scan_supported_adapter().and_then(map_adapter_resources);
         let mut runtime = WIFI_RUNTIME.lock();
         runtime.adapter = adapter;
@@ -165,7 +178,7 @@ pub fn receive_station_frame(rx_out: &mut [u8]) -> Result<usize, DriverError> {
 }
 
 fn scan_supported_adapter() -> Option<PciLocation> {
-    for bus in 0u16..=255 {
+    for bus in 0u16..=PCI_SCAN_MAX_BUS {
         for device in 0u8..32 {
             let location = PciLocation {
                 bus: bus as u8,
