@@ -12,14 +12,18 @@ Keyboard home-screen interactions (implemented):
 
 - `Left/Up`: previous focus target
 - `Right/Down`: next focus target
+- `Numpad Left/Up`: previous focus target
+- `Numpad Right/Down`: next focus target
 - `Tab` / `Shift+Tab`: next/previous focus target
-- `Enter` / `Space`: activate focused widget/icon/control
-- `Esc`: Home
+- `Enter` / `Numpad Enter` / `Space`: activate focused widget/icon/control
+- `Esc` / `Home`: Home
 
 Mouse interactions (implemented on PS/2 input path):
 
 - Mouse move: moves UI cursor
 - Left click: activates hovered widget/icon/control
+- Middle click: quick-clicks hovered widget/icon/control
+- Right click: returns to Home
 - Press-hold + move on clock/match/weather widgets: drag widget placement prototype
 - Press-hold + move on dock icons: horizontal dock reorder prototype
 - Hover and press states render translucent feedback on interactive targets

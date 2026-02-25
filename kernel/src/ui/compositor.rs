@@ -486,6 +486,11 @@ pub fn set_pointer_button(pressed: bool) -> Result<Option<GestureAction>, Presen
     let targets = build_home_targets(width, height, scene, MotionState::default());
 
     let action = unsafe {
+        if !UI_STATE.pointer_initialized {
+            UI_STATE.pointer_x = width / 2;
+            UI_STATE.pointer_y = height / 2;
+            UI_STATE.pointer_initialized = true;
+        }
         UI_STATE.pointer_visible = true;
         let mut action = None;
 

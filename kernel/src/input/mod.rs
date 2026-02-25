@@ -23,6 +23,8 @@ struct InputState {
     mouse_packet: [u8; MOUSE_PACKET_SIZE],
     mouse_packet_index: usize,
     mouse_left_down: bool,
+    mouse_right_down: bool,
+    mouse_middle_down: bool,
 }
 
 const EMPTY_INPUT_STATE: InputState = InputState {
@@ -35,6 +37,8 @@ const EMPTY_INPUT_STATE: InputState = InputState {
     mouse_packet: [0; MOUSE_PACKET_SIZE],
     mouse_packet_index: 0,
     mouse_left_down: false,
+    mouse_right_down: false,
+    mouse_middle_down: false,
 };
 
 static INPUT_STATE: IrqSafeLock<InputState> = IrqSafeLock::new(EMPTY_INPUT_STATE);
@@ -89,8 +93,11 @@ pub fn on_ps2_scancode(byte: u8) {
 }
 
 pub fn on_ps2_mouse_byte(byte: u8) {
-    let mut maybe_action = None;
     let mut motion = None;
+    let mut left_transition = None;
+    let mut left_is_down = false;
+    let mut right_pressed = false;
+    let mut middle_pressed = false;
     {
         let mut state = INPUT_STATE.lock();
         if byte == 0xFA || byte == 0xAA {
@@ -126,17 +133,45 @@ pub fn on_ps2_mouse_byte(byte: u8) {
         let left_down = (flags & 0x01) != 0;
         if left_down != state.mouse_left_down {
             state.mouse_left_down = left_down;
-            maybe_action = crate::ui::compositor::set_pointer_button(left_down)
-                .ok()
-                .flatten();
+            left_transition = Some(left_down);
+        }
+        left_is_down = state.mouse_left_down;
+
+        let right_down = (flags & 0x02) != 0;
+        if right_down != state.mouse_right_down {
+            right_pressed = right_down;
+            state.mouse_right_down = right_down;
+        }
+
+        let middle_down = (flags & 0x04) != 0;
+        if middle_down != state.mouse_middle_down {
+            middle_pressed = middle_down;
+            state.mouse_middle_down = middle_down;
         }
     }
 
     if let Some((dx, dy)) = motion {
         let _ = crate::ui::compositor::move_pointer(dx, dy);
     }
-    if let Some(action) = maybe_action {
-        dispatch_action(action);
+    if let Some(pressed) = left_transition {
+        if let Some(action) = crate::ui::compositor::set_pointer_button(pressed)
+            .ok()
+            .flatten()
+        {
+            dispatch_action(action);
+        }
+    }
+    if middle_pressed && !left_is_down {
+        let _ = crate::ui::compositor::set_pointer_button(true);
+        if let Some(action) = crate::ui::compositor::set_pointer_button(false)
+            .ok()
+            .flatten()
+        {
+            dispatch_action(action);
+        }
+    }
+    if right_pressed {
+        dispatch_action(GestureAction::Home);
     }
 }
 
@@ -166,6 +201,7 @@ fn select_action_for_key(keycode: u16, modifier_state: u32) -> Option<GestureAct
 fn handle_direct_key(code: u8, extended: bool, modifier_state: u32) -> Option<GestureAction> {
     if extended && (modifier_state & MOD_ALT) == 0 {
         match code {
+            0x47 => return Some(GestureAction::Home),
             0x48 | 0x4B => {
                 let _ = crate::ui::compositor::focus_prev();
                 return None;
@@ -174,12 +210,26 @@ fn handle_direct_key(code: u8, extended: bool, modifier_state: u32) -> Option<Ge
                 let _ = crate::ui::compositor::focus_next();
                 return None;
             }
+            0x1C => {
+                return crate::ui::compositor::activate_focused_target()
+                    .ok()
+                    .flatten();
+            }
             _ => {}
         }
     }
 
     if !extended && (modifier_state & (MOD_ALT | MOD_CTRL)) == 0 {
         match code {
+            0x48 | 0x4B => {
+                let _ = crate::ui::compositor::focus_prev();
+                return None;
+            }
+            0x50 | 0x4D => {
+                let _ = crate::ui::compositor::focus_next();
+                return None;
+            }
+            0x47 => return Some(GestureAction::Home),
             0x0F => {
                 if (modifier_state & MOD_SHIFT) != 0 {
                     let _ = crate::ui::compositor::focus_prev();
@@ -229,16 +279,42 @@ fn update_modifier(state: &mut InputState, code: u8, is_release: bool) -> bool {
 }
 
 fn ps2_to_hid_usage(code: u8, extended: bool) -> Option<u16> {
-    if !extended {
-        return None;
-    }
-
     match code {
         0x48 => Some(0x52),
         0x50 => Some(0x51),
         0x4B => Some(0x50),
         0x4D => Some(0x4F),
         _ => None,
+    }
+    .and_then(|usage| {
+        if extended {
+            Some(usage)
+        } else {
+            match code {
+                0x48 | 0x50 | 0x4B | 0x4D => Some(usage),
+                _ => None,
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_mouse_delta, ps2_to_hid_usage};
+
+    #[test]
+    fn decode_mouse_delta_signed() {
+        assert_eq!(decode_mouse_delta(5, false), 5);
+        assert_eq!(decode_mouse_delta(0xFF, true), -1);
+    }
+
+    #[test]
+    fn arrow_key_usages_handle_extended_and_keypad_paths() {
+        assert_eq!(ps2_to_hid_usage(0x48, true), Some(0x52));
+        assert_eq!(ps2_to_hid_usage(0x48, false), Some(0x52));
+        assert_eq!(ps2_to_hid_usage(0x50, true), Some(0x51));
+        assert_eq!(ps2_to_hid_usage(0x50, false), Some(0x51));
+        assert_eq!(ps2_to_hid_usage(0x1E, false), None);
     }
 }
 
