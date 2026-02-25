@@ -36,3 +36,17 @@
 - Keep each commit focused; avoid mixing refactors with behavior changes.
 - PRs should include a short problem statement, approach summary, linked issue/task, and validation notes (`make check`, QEMU run, or both).
 - Attach screenshots or log snippets for visible UI/boot/installer behavior changes.
+
+## Cursor Cloud specific instructions
+
+### OVMF firmware for QEMU
+On Ubuntu 24.04 the `ovmf` package ships `OVMF_CODE_4M.fd` instead of the expected `OVMF_CODE.fd`. `run_qemu.sh` looks for `bios/OVMF_CODE.fd` or `/usr/share/OVMF/OVMF_CODE.fd`. Use `cp /usr/share/ovmf/OVMF.fd bios/OVMF_CODE.fd` to provide the firmware. The `bios/` directory is gitignored.
+
+### Clippy scope
+`make clippy` runs clippy on the full workspace, which fails for bare-metal payload crates that require `-Zbuild-std`. CI only lints host-target crates: `cargo clippy -p abi -p openos-installer-gui -- -D warnings`. Use the CI-scoped command when validating changes to `abi` or `installer/gui`.
+
+### Running services
+- **Lint/test**: `make test` (runs `cargo test -p abi -p openos-installer-gui`; 67 tests).
+- **Full build**: `make build` (cross-compiles EFI loader, kernel, payloads, userspace, and installer).
+- **QEMU boot**: `make build && make qemu` (headless serial to stdout; uses KVM if available, falls back to TCG). Use `timeout 30 make qemu` to cap the boot duration when scripting.
+- There is no web server, database, or external service. End-to-end testing = QEMU boot with serial output.
