@@ -67,27 +67,26 @@ impl KernelDriver for IntelWifi {
 
     fn probe(&self) -> bool {
         let adapter = scan_supported_adapter().and_then(map_adapter_resources);
+        let Some(resources) = adapter else {
+            return false;
+        };
         let mut runtime = WIFI_RUNTIME.lock();
-        runtime.adapter = adapter;
+        runtime.adapter = Some(resources);
         runtime.initialized = false;
         runtime.rx_len = 0;
 
-        if let Some(resources) = adapter {
-            serial::write_line("[openos-kernel] intel-wifi probe matched");
-            serial::write_hex_u64(
-                "[openos-kernel] intel-wifi pci.vendor=",
-                resources.vendor_id as u64,
-            );
-            serial::write_hex_u64(
-                "[openos-kernel] intel-wifi pci.device=",
-                resources.device_id as u64,
-            );
-            serial::write_hex_u64("[openos-kernel] intel-wifi mmio.base=", resources.mmio_base);
-            serial::write_hex_u64("[openos-kernel] intel-wifi mmio.len=", resources.mmio_len);
-            true
-        } else {
-            false
-        }
+        serial::write_line("[openos-kernel] intel-wifi probe matched");
+        serial::write_hex_u64(
+            "[openos-kernel] intel-wifi pci.vendor=",
+            resources.vendor_id as u64,
+        );
+        serial::write_hex_u64(
+            "[openos-kernel] intel-wifi pci.device=",
+            resources.device_id as u64,
+        );
+        serial::write_hex_u64("[openos-kernel] intel-wifi mmio.base=", resources.mmio_base);
+        serial::write_hex_u64("[openos-kernel] intel-wifi mmio.len=", resources.mmio_len);
+        true
     }
 
     fn init(&self) -> Result<(), DriverError> {
